@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StitchTrack — Zikku Production</title>
+<title>StitchTrack — ZIKKU Production</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -39,6 +39,8 @@
   .header-right{display:flex;align-items:center;gap:10px;}
   .user-pill{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;background:#f1f5f9;border:1px solid var(--border);font-size:12px;font-weight:500;color:var(--text2);}
   .user-pill img{width:22px;height:22px;border-radius:50%;}
+  .sync-btn{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:var(--tr);}
+  .sync-btn:hover{border-color:var(--accent);color:var(--accent);}
   .signout-btn{padding:6px 12px;border-radius:8px;border:1px solid #fecaca;background:#fff;color:var(--red);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:var(--tr);}
   .signout-btn:hover{background:#fef2f2;}
 
@@ -221,6 +223,8 @@
       <button class="nav-btn" data-page="master">⚙️ Master Data</button>
     </nav>
     <div class="header-right">
+      <span id="syncStatus" style="font-size:12px;font-weight:500;min-width:80px;text-align:right;"></span>
+      <button class="sync-btn" onclick="forceSyncAll()" title="Sync all data to Google Sheets now">🔄 Sync Now</button>
       <div class="user-pill" id="userPill">
         <img id="userAvatar" src="" alt="" onerror="this.style.display='none'">
         <span id="userName">User</span>
@@ -565,6 +569,25 @@ function init() {
 
 function persist() { localStorage.setItem('stitchtrack_v4',JSON.stringify({labours:S.labours,products:S.products,batches:S.batches,logs:S.logs})); }
 
+// Auto-sync: saves locally AND pushes all 4 tabs to Sheets on every change
+async function persistAndSync() {
+  persistAndSync();
+  if (S.accessToken && S.sheetId) {
+    updateSyncStatus('syncing');
+    try {
+      await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()]);
+      updateSyncStatus('ok');
+    } catch(e) { console.error('Sync error',e); updateSyncStatus('error'); }
+  }
+}
+
+function updateSyncStatus(status) {
+  const el=document.getElementById('syncStatus');if(!el)return;
+  if(status==='syncing'){el.textContent='🔄 Syncing...';el.style.color='#d97706';}
+  else if(status==='ok'){el.textContent='✅ Synced';el.style.color='#16a34a';setTimeout(()=>{el.textContent='';},3000);}
+  else if(status==='error'){el.textContent='⚠️ Sync failed';el.style.color='#dc2626';}
+}
+
 function renderAll() {
   renderKanban(); renderDropdowns(); renderTodayLog();
   renderLabourMaster(); renderProductMaster(); renderBatches();
@@ -625,7 +648,11 @@ function setupTokenClient(){
       document.getElementById('mainApp').style.display='block';
       toast('Signed in ✓','success');
       renderAll();
-      syncAllFromSheets();
+      // Push local data first, then pull from sheets to merge
+      updateSyncStatus('syncing');
+      Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()])
+        .then(()=>{ updateSyncStatus('ok'); syncAllFromSheets(); })
+        .catch(()=>{ updateSyncStatus('error'); syncAllFromSheets(); });
     }
   });
 }
@@ -871,7 +898,7 @@ function restoreFromBackup(event){
           pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''
         }));
       }
-      persist(); renderAll();
+      persistAndSync().then(()=>renderAll());
       toast('Data restored from backup ✓','success');
       // Also push to Google Sheets
       if(S.accessToken) { syncAllToSheets(); }
@@ -946,7 +973,7 @@ function saveLog(){
   }
   const log={id:Date.now().toString(),date,batchNo:bNo,product:batch?batch.product:'',labour,stage:OP_STAGE[op]||'',operation:op,pieces:good,rejections:rej,notes,time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})};
   S.logs.push(log);
-  persist();renderAll();clearLogForm();
+  persistAndSync().then(()=>renderAll());clearLogForm();
   toast('Entry saved ✓','success');
   if(S.accessToken&&S.sheetId) appendLogToSheets(log);
 }
@@ -1011,7 +1038,7 @@ async function saveEditLog(){
     }
   }
   log.date=date;log.labour=labour;log.pieces=good;log.rejections=rej;log.notes=notes;
-  persist();renderAll();closeModal('editLogModal');
+  persistAndSync().then(()=>renderAll());closeModal('editLogModal');
   toast('Entry updated ✓','success');
   if(S.accessToken&&S.sheetId) syncAllLogsToSheets();
 }
@@ -1019,7 +1046,7 @@ async function saveEditLog(){
 function deleteLog(id){
   if(!confirm('Delete this entry?')) return;
   S.logs=S.logs.filter(l=>l.id!==id);
-  persist();renderAll();toast('Deleted','info');
+  persistAndSync().then(()=>renderAll());toast('Deleted','info');
   if(S.accessToken&&S.sheetId) syncAllLogsToSheets();
 }
 
@@ -1073,9 +1100,9 @@ function saveProduct(){
   if(!name){toast('Enter product name','error');return;}if(productSteps.length<1){toast('Add at least one operation','error');return;}
   if(orig){const p=S.products.find(x=>x.name===orig);if(p){p.name=name;p.processSteps=[...productSteps];S.batches.forEach(b=>{if(b.product===orig)b.product=name;});S.logs.forEach(l=>{if(l.product===orig)l.product=name;});}toast('Updated ✓','success');}
   else{if(S.products.find(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.products.push({name,processSteps:[...productSteps]});toast(`"${name}" added ✓`,'success');}
-  persist();renderAll();closeModal('productModal');if(S.accessToken)syncProductToSheets();
+  persistAndSync().then(()=>renderAll());closeModal('productModal');if(S.accessToken)syncProductToSheets();
 }
-function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);persist();renderAll();toast('Deleted','info');}
+function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);persistAndSync().then(()=>renderAll());toast('Deleted','info');}
 
 // ===== LABOUR MASTER =====
 function openAddLabour(){document.getElementById('labourModalTitle').textContent='Add Labour';document.getElementById('editLabourOrig').value='';document.getElementById('newLabourName').value='';openModal('labourModal');}
@@ -1085,9 +1112,9 @@ function saveLabour(){
   if(!name){toast('Enter name','error');return;}
   if(orig){const lb=S.labours.find(l=>l.name===orig);if(lb){S.logs.forEach(l=>{if(l.labour===orig)l.labour=name;});lb.name=name;}toast('Updated ✓','success');}
   else{if(S.labours.find(l=>l.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.labours.push({name,active:true});toast(`"${name}" added ✓`,'success');}
-  persist();renderAll();closeModal('labourModal');if(S.accessToken)syncLabourToSheets();
+  persistAndSync().then(()=>renderAll());closeModal('labourModal');if(S.accessToken)syncLabourToSheets();
 }
-function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;persist();renderLabourMaster();renderDropdowns();}}
+function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;persistAndSync().then(()=>{renderLabourMaster();renderDropdowns();});}}
 function renderLabourMaster(){
   const tbody=document.getElementById('labourMasterTable');
   if(!S.labours.length){tbody.innerHTML=`<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3);">No labour added</td></tr>`;return;}
@@ -1120,7 +1147,7 @@ function saveBatch(){
   const p=S.products.find(x=>x.name===prod);
   if(!p||!p.processSteps||!p.processSteps.length){toast('Product has no process sequence','error');return;}
   S.batches.push({batchNo:bNo,product:prod,processSteps:[...p.processSteps],notes,created:new Date().toISOString().split('T')[0],archived:false});
-  persist();renderAll();closeModal('batchModal');toast(`Batch #${bNo} created ✓`,'success');
+  persistAndSync().then(()=>renderAll());closeModal('batchModal');toast(`Batch #${bNo} created ✓`,'success');
   if(S.accessToken)syncBatchToSheets();
 }
 function openEditBatch(bNo){
@@ -1135,12 +1162,12 @@ function saveEditBatch(){
   const b=S.batches.find(x=>x.batchNo===bNo);if(!b)return;
   if(prod!==b.product){const p=S.products.find(x=>x.name===prod);if(p&&p.processSteps){b.product=prod;b.processSteps=[...p.processSteps];}}
   b.notes=notes;S.logs.forEach(l=>{if(l.batchNo===bNo)l.product=b.product;});
-  persist();renderAll();closeModal('batchEditModal');toast('Batch updated ✓','success');
+  persistAndSync().then(()=>renderAll());closeModal('batchEditModal');toast('Batch updated ✓','success');
   if(S.accessToken)syncBatchToSheets();
 }
-function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;persist();renderAll();toast('Archived ✓','success');if(S.accessToken)syncBatchToSheets();}}
-function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;persist();renderAll();toast('Reopened','info');if(S.accessToken)syncBatchToSheets();}}
-function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);persist();renderAll();toast('Deleted','info');if(S.accessToken){syncBatchToSheets();syncAllLogsToSheets();}}
+function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;persistAndSync().then(()=>renderAll());toast('Archived ✓','success');if(S.accessToken)syncBatchToSheets();}}
+function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;persistAndSync().then(()=>renderAll());toast('Reopened','info');if(S.accessToken)syncBatchToSheets();}}
+function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);persistAndSync().then(()=>renderAll());toast('Deleted','info');if(S.accessToken){syncBatchToSheets();syncAllLogsToSheets();}}
 function renderBatches(){
   const tbody=document.getElementById('batchTable');
   if(!S.batches.length){tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--text3);">No batches created</td></tr>`;return;}
@@ -1207,7 +1234,7 @@ async function syncAllFromSheets(){
   if(pR?.values&&pR.values.length) S.products=pR.values.map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
   if(bR?.values&&bR.values.length) S.batches=bR.values.map(r=>({batchNo:r[0]||'',product:r[1]||'',processSteps:(r[2]||'').split('|').filter(Boolean),notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'}));
   if(logR?.values&&logR.values.length) S.logs=logR.values.map(r=>({id:String(r[0]||''),date:r[1]||'',batchNo:r[2]||'',product:r[3]||'',labour:r[4]||'',stage:r[5]||'',operation:r[6]||'',pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''}));
-  persist();renderAll();toast('Synced ✓','success');
+  persistAndSync().then(()=>renderAll());toast('Synced ✓','success');
 }
 
 async function syncAllToSheets(){
@@ -1232,6 +1259,17 @@ async function syncProductToSheets(){
 }
 async function syncBatchToSheets(){
   await sheetsReq('PUT','BatchMaster!A1:F',[['Batch No','Product','Process Steps','Notes','Created Date','Archived'],...S.batches.map(b=>[b.batchNo,b.product,(b.processSteps||[]).join('|'),b.notes||'',b.created,b.archived?'TRUE':'FALSE'])]);
+}
+
+// ===== FORCE SYNC =====
+async function forceSyncAll(){
+  if(!S.accessToken){toast('Please sign in first','error');return;}
+  updateSyncStatus('syncing');
+  try {
+    await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()]);
+    updateSyncStatus('ok');
+    toast('All data synced to Google Sheets ✓','success');
+  } catch(e){ updateSyncStatus('error'); toast('Sync failed — check connection','error'); }
 }
 
 // ===== MODAL =====
