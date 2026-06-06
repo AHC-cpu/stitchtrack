@@ -350,6 +350,7 @@
       <button class="nav-btn" data-page="log">➕ Log Entry</button>
       <button class="nav-btn" data-page="labour">👷 Labour Report</button>
       <button class="nav-btn" data-page="batches">📦 Batches</button>
+      <button class="nav-btn" data-page="groups">🔗 Groups</button>
       <button class="nav-btn" data-page="master">⚙️ Master Data</button>
     </nav>
     <div class="header-right">
@@ -376,6 +377,9 @@
     </button>
     <button class="mobile-nav-btn" data-page="batches" onclick="mobileNav(this,'batches')">
       <span class="mnav-icon">📦</span>Batches
+    </button>
+    <button class="mobile-nav-btn" data-page="groups" onclick="mobileNav(this,'groups')">
+      <span class="mnav-icon">🔗</span>Groups
     </button>
     <button class="mobile-nav-btn" data-page="master" onclick="mobileNav(this,'master')">
       <span class="mnav-icon">⚙️</span>Master
@@ -485,6 +489,23 @@
       <table id="batchPrintTable">
         <thead><tr><th>Batch No</th><th>Product</th><th>Notes</th><th>Process Sequence</th><th>Total Pcs</th><th>Created</th><th>Status</th><th class="no-print">Actions</th></tr></thead>
         <tbody id="batchTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- GROUPS -->
+  <div class="page" id="page-groups">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Batch Groups</div>
+        <div class="section-sub">Link multiple cutting batches — combined pieces flow to next stage</div>
+      </div>
+      <button class="btn btn-primary" onclick="openGroupModal()">+ New Group</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Group ID</th><th>Name</th><th>Linked Batches</th><th>Total Cut Pcs</th><th>Post-Cut Sequence</th><th>Notes</th><th>Created</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="groupTable"></tbody>
       </table>
     </div>
   </div>
@@ -647,6 +668,43 @@
   </div>
 </div>
 
+<!-- Group Create Modal -->
+<div class="modal-overlay" id="groupModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="groupModalTitle">Create Batch Group</div>
+      <button class="modal-close" onclick="closeModal('groupModal')">✕</button>
+    </div>
+    <input type="hidden" id="editGroupId">
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-group">
+        <label>Group ID <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">(auto, editable)</span></label>
+        <input type="text" id="newGroupId" placeholder="e.g. G-001">
+      </div>
+      <div class="form-group">
+        <label>Group Name</label>
+        <input type="text" id="newGroupName" placeholder="e.g. Nursing Pad Size M">
+      </div>
+      <div class="form-group full">
+        <label>Notes / Remarks</label>
+        <textarea id="newGroupNotes" placeholder="e.g. Blue print, batch of 3 layers..."></textarea>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;margin-bottom:6px;">Link Cutting Batches</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Select the batches whose cutting pieces will be combined. Their post-cutting sequence will be inherited by this group.</p>
+    <div id="groupBatchPicker" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+    <div id="groupLinkedBatches" style="margin-top:8px;"></div>
+    <div class="divider"></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600;">POST-CUTTING SEQUENCE (inherited)</div>
+    <div id="groupSeqPreview" style="display:flex;flex-wrap:wrap;gap:3px;align-items:center;min-height:28px;padding:6px 0;"></div>
+    <div style="margin-top:18px;display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="saveGroup()">Save Group</button>
+      <button class="btn btn-ghost" onclick="closeModal('groupModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit Log Modal -->
 <div class="modal-overlay" id="editLogModal">
   <div class="modal">
@@ -681,8 +739,8 @@ const SCOPES    = 'https://www.googleapis.com/auth/spreadsheets https://www.goog
 // ===== CONSTANTS =====
 const ALL_OPS = {
   'Cutting':   ['Cutting'],
-  'Stitching': ['Complete Stitch','Elastic Stick','2-Layer Stick','3-Layer Stick','Label Attach','Overlock','Button Stitch'],
-  'Packing':   ['Extra Thread Cutting','Steam Iron','Polybag','Box Packing'],
+  'Stitching': ['Complete Stitch','Elastic Stick','2-Layer Stick','3-Layer Stick','Label Attach','Overlock','Button Stitch','Piping'],
+  'Packing':   ['Extra Thread Cutting','Steam Iron','Polybag','Box Packing','Logo','Logo+Press+Pack','Press+Pack'],
   'Stocked':   ['Stocked']
 };
 const OP_STAGE = {};
@@ -695,7 +753,7 @@ const SC = {
 };
 
 // ===== STATE =====
-let S = {labours:[],products:[],batches:[],logs:[],sheetId:SHEET_ID,accessToken:''};
+let S = {labours:[],products:[],batches:[],groups:[],logs:[],sheetId:SHEET_ID,accessToken:''};
 let productSteps = [];
 let kFilter = 'all';
 let tokenClient = null;
@@ -703,7 +761,7 @@ let tokenClient = null;
 // ===== INIT =====
 function init() {
   const saved = localStorage.getItem('stitchtrack_v4');
-  if (saved) { try { const d=JSON.parse(saved); S.labours=d.labours||[]; S.products=d.products||[]; S.batches=d.batches||[]; S.logs=d.logs||[]; } catch(e){} }
+  if (saved) { try { const d=JSON.parse(saved); S.labours=d.labours||[]; S.products=d.products||[]; S.batches=d.batches||[]; S.groups=d.groups||[]; S.logs=d.logs||[]; } catch(e){} }
   S.sheetId = SHEET_ID;
   document.getElementById('sheetId').value = SHEET_ID;
 
@@ -717,7 +775,7 @@ function init() {
 }
 
 function persist() {
-  localStorage.setItem('stitchtrack_v4',JSON.stringify({labours:S.labours,products:S.products,batches:S.batches,logs:S.logs}));
+  localStorage.setItem('stitchtrack_v4',JSON.stringify({labours:S.labours,products:S.products,batches:S.batches,groups:S.groups,logs:S.logs}));
 }
 
 // ── SYNC STRATEGY ──────────────────────────────────────────────────────────
@@ -750,6 +808,7 @@ async function flushSyncQueue() {
       if (name === 'LabourMaster') return syncLabourToSheets();
       if (name === 'ProductMaster')return syncProductToSheets();
       if (name === 'BatchMaster')  return syncBatchToSheets();
+      if (name === 'GroupMaster')  return syncGroupToSheets();
       return Promise.resolve();
     });
     await Promise.all(tasks);
@@ -779,7 +838,7 @@ function updateSyncStatus(status) {
 function renderAll() {
   renderKanban(); renderDropdowns(); renderTodayLog();
   renderLabourMaster(); renderProductMaster(); renderBatches();
-  renderLabourReport(); syncKanbanBatchFilter();
+  renderGroups(); renderLabourReport(); syncKanbanBatchFilter();
 }
 
 // ===== NAV =====
@@ -972,6 +1031,40 @@ function renderKanban(){
     });
     rows+=`</tr>`;
   });
+
+  // ── GROUP ROWS (combined cutting → stitching/packing) ──────────────
+  const activeGroups=(S.groups||[]).filter(g=>!(!showArch&&g.archived));
+  activeGroups.forEach(g=>{
+    const steps=g.postCutSteps||[];
+    const cutTotal=getGroupCutTotal(g);
+    const gStats={};
+    steps.forEach((op,i)=>{gStats[op]=getGroupStepStats(g.groupId,i);});
+    const batchSummary=(g.batchNos||[]).map(bNo=>`<span style="font-size:10px;background:#f1f5f9;border-radius:3px;padding:1px 5px;margin-right:2px;">#${bNo}</span>`).join('');
+    rows+=`<tr style="background:#fffbeb;">`;
+    rows+=`<td class="batch-cell"><strong style="color:#b45309;">${g.groupId}</strong> <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;font-weight:700;">GROUP</span><br><span style="font-size:11px;color:var(--text2);font-weight:400;">${g.name}</span><br><div style="margin-top:3px;">${batchSummary}</div>${g.notes?`<div class="batch-note">📝 ${g.notes}</div>`:''}</td>`;
+    rows+=`<td class="totalpcs-cell" style="font-weight:700;">${cutTotal>0?cutTotal:'<span style="color:var(--text3);">—</span>'}</td>`;
+    allOps.forEach(op=>{
+      if(!steps.includes(op)){rows+=`<td class="cell-na">N/A</td>`;return;}
+      const d=gStats[op];if(!d){rows+=`<td>—</td>`;return;}
+      const isLast=steps[steps.length-1]===op;
+      const tl=S.logs.filter(l=>l.batchNo===g.groupId&&l.operation===op&&l.date===selDate);
+      const tg=tl.reduce((a,l)=>a+(parseInt(l.pieces)||0),0);
+      const tr2=tl.reduce((a,l)=>a+(parseInt(l.rejections)||0),0);
+      if(d.good===0&&d.rej===0){
+        rows+=`<td><span class="cell-pending">${d.incoming>0?'⏳ '+d.incoming+' pending':'—'}</span></td>`;
+      } else {
+        let h=`<div class="cell-done">${d.good} good</div>`;
+        if(d.rej>0)h+=`<div class="cell-rej">−${d.rej} rej</div>`;
+        if(selDate&&(tg>0||tr2>0))h+=`<div style="font-size:10px;color:#7c3aed;">Today: ${tg}${tr2>0?' (−'+tr2+')':''}</div>`;
+        if(d.remaining!==null){
+          if(d.remaining>0)h+=`<div class="cell-rem">⏳ ${d.remaining} rem</div>`;
+          else h+=`<div class="cell-ok">${isLast?'✓ Complete':'✓ All passed'}</div>`;
+        }
+        rows+=`<td>${h}</td>`;
+      }
+    });
+    rows+=`</tr>`;
+  });
   wrap.innerHTML=`<table class="kt"><thead>${stageRow}${opRow}</thead><tbody>${rows||'<tr><td colspan="99" style="text-align:center;padding:30px;color:var(--text3);">No batches</td></tr>'}</tbody></table>`;
 }
 
@@ -1046,6 +1139,13 @@ function downloadFullBackup(){
   bWs['!cols']=[{wch:12},{wch:25},{wch:80},{wch:40},{wch:12},{wch:10}];
   XLSX.utils.book_append_sheet(wb,bWs,'BatchMaster');
 
+  // Groups
+  const grpRows=[['Group ID','Name','Batch Nos','Post-Cut Steps','Notes','Created','Archived']];
+  (S.groups||[]).forEach(g=>grpRows.push([g.groupId,g.name,(g.batchNos||[]).join('|'),(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE']));
+  const grpWs=XLSX.utils.aoa_to_sheet(grpRows);
+  grpWs['!cols']=[{wch:12},{wch:25},{wch:30},{wch:80},{wch:30},{wch:12},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,grpWs,'GroupMaster');
+
   // Logs
   const logRows=[['ID','Date','BatchNo','Product','Labour','Stage','Operation','GoodPieces','Rejected','Notes','Time']];
   S.logs.forEach(l=>logRows.push([l.id,l.date,l.batchNo,l.product,l.labour,l.stage,l.operation,l.pieces,l.rejections,l.notes||'',l.time||'']));
@@ -1087,6 +1187,12 @@ function restoreFromBackup(event){
           notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'
         }));
       }
+      // Groups
+      const grpSheet=wb.Sheets['GroupMaster'];
+      if(grpSheet){
+        const grpData=XLSX.utils.sheet_to_json(grpSheet,{header:1});
+        S.groups=grpData.slice(1).filter(r=>r[0]).map(r=>({groupId:r[0]||'',name:r[1]||'',batchNos:(r[2]||'').split('|').filter(Boolean),postCutSteps:(r[3]||'').split('|').filter(Boolean),notes:r[4]||'',created:r[5]||'',archived:(r[6]||'')==='TRUE'}));
+      }
       // Logs
       const logSheet=wb.Sheets['Logs'];
       if(logSheet){
@@ -1116,12 +1222,21 @@ function restoreFromBackup(event){
 
 // ===== LOG ENTRY =====
 function onLogBatchChange(){
-  const bNo=document.getElementById('logBatch').value;
+  const id=document.getElementById('logBatch').value;
   const opSel=document.getElementById('logOperation');
   opSel.innerHTML='<option value="">— Select Operation —</option>';
   hideV();
-  if(!bNo) return;
-  const b=S.batches.find(x=>x.batchNo===bNo);
+  if(!id) return;
+  // Check if it's a group
+  const grp=S.groups&&S.groups.find(g=>g.groupId===id);
+  if(grp){
+    (grp.postCutSteps||[]).forEach(op=>{
+      const o=document.createElement('option');o.value=op;o.textContent=`${op}  (${OP_STAGE[op]})`;opSel.appendChild(o);
+    });
+    return;
+  }
+  // Regular batch
+  const b=S.batches.find(x=>x.batchNo===id);
   if(!b) return;
   (b.processSteps||[]).forEach(op=>{
     const o=document.createElement('option');o.value=op;o.textContent=`${op}  (${OP_STAGE[op]})`;opSel.appendChild(o);
@@ -1136,22 +1251,44 @@ function onLogOpChange(){
   showFlowInfo(bNo,op,null);
 }
 
-function showFlowInfo(bNo,op,excludeId){
-  const batch=S.batches.find(b=>b.batchNo===bNo);
+function showFlowInfo(id,op,excludeId){
+  // Group flow
+  const grp=S.groups&&S.groups.find(g=>g.groupId===id);
+  if(grp){
+    const steps=grp.postCutSteps||[];
+    const idx=steps.indexOf(op);
+    if(idx<0) return;
+    if(idx===0){
+      const cutTotal=getGroupCutTotal(grp);
+      const d=getGroupStepStats(id,0,excludeId);
+      const consumed=d?d.consumed:0;
+      showVOk(`Group cut total: ${cutTotal} pcs. Already consumed: ${consumed}. Available: ${cutTotal-consumed} pcs.`);
+      return;
+    }
+    const prevStats=getGroupStepStats(id,idx-1,excludeId);
+    const prevGood=prevStats?prevStats.good:0;
+    if(prevGood<=0){showVWarn(`Cannot log "${op}" — "${steps[idx-1]}" has no good pieces yet.`);return;}
+    const avail=getGroupAvailable(id,op,excludeId);
+    if(avail!==null&&avail<=0){showVWarn(`All ${prevGood} pieces already consumed here.`);return;}
+    showVOk(`"${steps[idx-1]}" passed ${prevGood} good pcs. Available: ${avail} pcs.`);
+    return;
+  }
+  // Batch flow
+  const batch=S.batches.find(b=>b.batchNo===id);
   if(!batch) return;
   const steps=batch.processSteps||[];
   const idx=steps.indexOf(op);
   if(idx<0) return;
   if(idx===0){
-    const d=getStepStats(bNo,0,excludeId);
+    const d=getStepStats(id,0,excludeId);
     showVOk(`First operation — no upper limit. Already logged: ${d?d.consumed:0} pcs.`);
     return;
   }
-  const prevStats=getStepStats(bNo,idx-1,excludeId);
+  const prevStats=getStepStats(id,idx-1,excludeId);
   const prevGood=prevStats?prevStats.good:0;
   if(prevGood<=0){showVWarn(`Cannot log "${op}" — "${steps[idx-1]}" has no good pieces yet.`);return;}
-  const avail=getAvailable(bNo,op,excludeId);
-  if(avail!==null&&avail<=0){showVWarn(`All ${prevGood} pieces from "${steps[idx-1]}" already consumed here.`);return;}
+  const avail=getAvailable(id,op,excludeId);
+  if(avail!==null&&avail<=0){showVWarn(`All ${prevGood} pieces already consumed here.`);return;}
   showVOk(`"${steps[idx-1]}" passed ${prevGood} good pcs. Available: ${avail} pcs.`);
 }
 
@@ -1165,16 +1302,29 @@ function saveLog(){
   const notes=document.getElementById('logNotes').value;
   if(!date||!bNo||!labour||!op){toast('Fill all required fields','error');return;}
   if(good<=0){toast('Good pieces must be > 0','error');return;}
-  const batch=S.batches.find(b=>b.batchNo===bNo);
-  const steps=batch?batch.processSteps||[]:[];
-  const idx=steps.indexOf(op);
-  if(idx>0){
-    const prevStats=getStepStats(bNo,idx-1,null);
-    if(!prevStats||prevStats.good<=0){toast(`"${steps[idx-1]}" has no good pieces yet`,'error');return;}
-    const avail=getAvailable(bNo,op,null);
-    if(avail!==null&&good+rej>avail){showVWarn(`Total (${good}+${rej}=${good+rej}) exceeds available ${avail} pcs.`);toast(`Exceeds available ${avail} pcs`,'error');return;}
+  // Handle group or batch
+  const grp=S.groups&&S.groups.find(g=>g.groupId===bNo);
+  const batch=grp?null:S.batches.find(b=>b.batchNo===bNo);
+  if(grp){
+    const steps=grp.postCutSteps||[];
+    const idx=steps.indexOf(op);
+    if(idx>0){
+      const prevStats=getGroupStepStats(bNo,idx-1,null);
+      if(!prevStats||prevStats.good<=0){toast(`"${steps[idx-1]}" has no good pieces yet`,'error');return;}
+      const avail=getGroupAvailable(bNo,op,null);
+      if(avail!==null&&good+rej>avail){showVWarn(`Total (${good}+${rej}=${good+rej}) exceeds available ${avail} pcs.`);toast(`Exceeds available ${avail} pcs`,'error');return;}
+    }
+  } else if(batch){
+    const steps=batch.processSteps||[];
+    const idx=steps.indexOf(op);
+    if(idx>0){
+      const prevStats=getStepStats(bNo,idx-1,null);
+      if(!prevStats||prevStats.good<=0){toast(`"${steps[idx-1]}" has no good pieces yet`,'error');return;}
+      const avail=getAvailable(bNo,op,null);
+      if(avail!==null&&good+rej>avail){showVWarn(`Total (${good}+${rej}=${good+rej}) exceeds available ${avail} pcs.`);toast(`Exceeds available ${avail} pcs`,'error');return;}
+    }
   }
-  const log={id:Date.now().toString(),date,batchNo:bNo,product:batch?batch.product:'',labour,stage:OP_STAGE[op]||'',operation:op,pieces:good,rejections:rej,notes,time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})};
+  const log={id:Date.now().toString(),date,batchNo:bNo,product:grp?grp.name:(batch?batch.product:''),labour,stage:OP_STAGE[op]||'',operation:op,pieces:good,rejections:rej,notes,time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})};
   S.logs.push(log);
   persist();          // save locally — instant
   renderAll();
@@ -1403,8 +1553,22 @@ function renderBatches(){
 // ===== DROPDOWNS =====
 function renderDropdowns(){
   const bSel=document.getElementById('logBatch');const bCur=bSel.value;
-  bSel.innerHTML='<option value="">— Select Batch —</option>';
-  S.batches.filter(b=>!b.archived).forEach(b=>{const o=document.createElement('option');o.value=b.batchNo;o.textContent=`#${b.batchNo} — ${b.product}${b.notes?' ('+b.notes.substring(0,18)+')':''}`;bSel.appendChild(o);});
+  bSel.innerHTML='<option value="">— Select Batch / Group —</option>';
+  // Active batches (only those NOT fully grouped for post-cut steps, OR used for cutting only)
+  S.batches.filter(b=>!b.archived).forEach(b=>{
+    const o=document.createElement('option');o.value=b.batchNo;
+    o.textContent=`#${b.batchNo} — ${b.product}${b.notes?' ('+b.notes.substring(0,15)+')':''}`;
+    bSel.appendChild(o);
+  });
+  // Active groups (for post-cutting operations)
+  if(S.groups&&S.groups.filter(g=>!g.archived).length){
+    const grpOpt=document.createElement('option');grpOpt.disabled=true;grpOpt.textContent='── Groups ──';bSel.appendChild(grpOpt);
+    S.groups.filter(g=>!g.archived).forEach(g=>{
+      const o=document.createElement('option');o.value=g.groupId;
+      o.textContent=`${g.groupId} — ${g.name}${g.notes?' ('+g.notes.substring(0,15)+')':''}`;
+      bSel.appendChild(o);
+    });
+  }
   if(bCur)bSel.value=bCur;
   const lSel=document.getElementById('logLabour');const lfSel=document.getElementById('labourFilter');const lCur=lSel.value;
   lSel.innerHTML='<option value="">— Select Labour —</option>';lfSel.innerHTML='<option value="">All Labour</option>';
@@ -1433,15 +1597,17 @@ async function sheetsReq(method,range,values){
 
 async function syncAllFromSheets(){
   toast('Syncing from Sheets...','info');
-  const [lR,pR,bR,logR]=await Promise.all([
+  const [lR,pR,bR,gR,logR]=await Promise.all([
     sheetsReq('GET','LabourMaster!A2:B'),
     sheetsReq('GET','ProductMaster!A2:B'),
     sheetsReq('GET','BatchMaster!A2:G'),
+    sheetsReq('GET','GroupMaster!A2:G'),
     sheetsReq('GET','Logs!A2:K')
   ]);
   if(lR?.values&&lR.values.length) S.labours=lR.values.map(r=>({name:r[0]||'',active:(r[1]||'TRUE')==='TRUE'}));
   if(pR?.values&&pR.values.length) S.products=pR.values.map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
   if(bR?.values&&bR.values.length) S.batches=bR.values.map(r=>({batchNo:r[0]||'',product:r[1]||'',processSteps:(r[2]||'').split('|').filter(Boolean),notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'}));
+  if(gR?.values&&gR.values.length) S.groups=gR.values.map(r=>({groupId:r[0]||'',name:r[1]||'',batchNos:(r[2]||'').split('|').filter(Boolean),postCutSteps:(r[3]||'').split('|').filter(Boolean),notes:r[4]||'',created:r[5]||'',archived:(r[6]||'')==='TRUE'}));
   if(logR?.values&&logR.values.length) S.logs=logR.values.map(r=>({id:String(r[0]||''),date:r[1]||'',batchNo:r[2]||'',product:r[3]||'',labour:r[4]||'',stage:r[5]||'',operation:r[6]||'',pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''}));
   persist();renderAll();toast('Synced ✓','success');
 }
@@ -1455,6 +1621,13 @@ async function syncAllLogsToSheets(){
   const rows=S.logs.map(l=>[l.id,l.date,l.batchNo,l.product,l.labour,l.stage,l.operation,l.pieces,l.rejections,l.notes||'',l.time||'']);
   await sheetsReq('PUT','Logs!A1:K',[...h,...rows]);
 }
+async function syncGroupToSheets(){
+  if(!S.sheetId||!S.accessToken) return;
+  const h=[['Group ID','Name','Batch Nos','Post-Cut Steps','Notes','Created','Archived']];
+  const rows=(S.groups||[]).map(g=>[g.groupId,g.name,(g.batchNos||[]).join('|'),(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE']);
+  await sheetsReq('PUT','GroupMaster!A1:G',[...h,...rows]);
+}
+
 async function syncLabourToSheets(){
   await sheetsReq('PUT','LabourMaster!A1:B',[['Name','Active'],...S.labours.map(l=>[l.name,l.active?'TRUE':'FALSE'])]);
 }
@@ -1465,12 +1638,256 @@ async function syncBatchToSheets(){
   await sheetsReq('PUT','BatchMaster!A1:F',[['Batch No','Product','Process Steps','Notes','Created Date','Archived'],...S.batches.map(b=>[b.batchNo,b.product,(b.processSteps||[]).join('|'),b.notes||'',b.created,b.archived?'TRUE':'FALSE'])]);
 }
 
+// ===== BATCH GROUPS =====
+
+let tempGroupBatches = []; // temp while building group
+
+function nextGroupId() {
+  if (!S.groups.length) return 'G-001';
+  const nums = S.groups.map(g => { const m = g.groupId.match(/(\d+)$/); return m ? parseInt(m[1]) : 0; });
+  return 'G-' + String(Math.max(...nums) + 1).padStart(3, '0');
+}
+
+function openGroupModal(editId=null) {
+  tempGroupBatches = [];
+  if (editId) {
+    const g = S.groups.find(x => x.groupId === editId);
+    if (!g) return;
+    tempGroupBatches = [...(g.batchNos || [])];
+    document.getElementById('groupModalTitle').textContent = 'Edit Group';
+    document.getElementById('editGroupId').value = editId;
+    document.getElementById('newGroupId').value = g.groupId;
+    document.getElementById('newGroupName').value = g.name;
+    document.getElementById('newGroupNotes').value = g.notes || '';
+  } else {
+    document.getElementById('groupModalTitle').textContent = 'Create Batch Group';
+    document.getElementById('editGroupId').value = '';
+    document.getElementById('newGroupId').value = nextGroupId();
+    document.getElementById('newGroupName').value = '';
+    document.getElementById('newGroupNotes').value = '';
+  }
+  renderGroupBatchPicker();
+  renderGroupLinked();
+  renderGroupSeqPreview();
+  closeModal('batchModal');
+  openModal('groupModal');
+}
+
+function renderGroupBatchPicker() {
+  // Show only active, ungrouped batches (or batches already in this group)
+  const editId = document.getElementById('editGroupId').value;
+  const available = S.batches.filter(b => {
+    if (b.archived) return false;
+    // Already linked to this group
+    if (tempGroupBatches.includes(b.batchNo)) return false;
+    // Not linked to any other group
+    const inOtherGroup = S.groups.some(g => g.groupId !== editId && (g.batchNos || []).includes(b.batchNo));
+    if (inOtherGroup) return false;
+    // Has cutting in sequence
+    return (b.processSteps || []).includes('Cutting');
+  });
+
+  const container = document.getElementById('groupBatchPicker');
+  if (!available.length) {
+    container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No available batches with Cutting step. Create batches first.</span>';
+    return;
+  }
+  container.innerHTML = available.map(b => `
+    <span onclick="addBatchToGroup('${b.batchNo}')"
+      style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:#fff;
+             color:var(--text2);font-size:12px;cursor:pointer;transition:var(--tr);"
+      onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+      onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text2)'">
+      #${b.batchNo} — ${b.product}${b.notes ? ' ('+b.notes.substring(0,15)+')' : ''}
+    </span>`).join('');
+}
+
+function addBatchToGroup(bNo) {
+  if (tempGroupBatches.includes(bNo)) return;
+  tempGroupBatches.push(bNo);
+  renderGroupBatchPicker();
+  renderGroupLinked();
+  renderGroupSeqPreview();
+}
+
+function removeBatchFromGroup(bNo) {
+  tempGroupBatches = tempGroupBatches.filter(b => b !== bNo);
+  renderGroupBatchPicker();
+  renderGroupLinked();
+  renderGroupSeqPreview();
+}
+
+function renderGroupLinked() {
+  const container = document.getElementById('groupLinkedBatches');
+  if (!tempGroupBatches.length) { container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No batches linked yet.</span>'; return; }
+  container.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Linked Batches:</div>' +
+    tempGroupBatches.map(bNo => {
+      const b = S.batches.find(x => x.batchNo === bNo);
+      const cutGood = b ? getStepStats(bNo, 0) : null;
+      const pcs = cutGood ? cutGood.good : 0;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;margin-bottom:5px;">
+        <strong style="font-size:13px;">#${bNo}</strong>
+        <span style="font-size:12px;color:var(--text2);">${b ? b.product : ''}</span>
+        ${b && b.notes ? '<span style="font-size:11px;color:#7c3aed;font-style:italic;">'+b.notes+'</span>' : ''}
+        <span style="margin-left:auto;font-size:12px;font-weight:700;color:var(--green);">Cut: ${pcs} pcs</span>
+        <button onclick="removeBatchFromGroup('${bNo}')" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;padding:0 2px;">✕</button>
+      </div>`;
+    }).join('');
+}
+
+function getGroupPostCutSteps(batchNos) {
+  // Get steps after Cutting from first linked batch
+  if (!batchNos || !batchNos.length) return [];
+  const b = S.batches.find(x => x.batchNo === batchNos[0]);
+  if (!b) return [];
+  const steps = b.processSteps || [];
+  const cutIdx = steps.indexOf('Cutting');
+  return cutIdx >= 0 ? steps.slice(cutIdx + 1) : steps;
+}
+
+function renderGroupSeqPreview() {
+  const steps = getGroupPostCutSteps(tempGroupBatches);
+  const container = document.getElementById('groupSeqPreview');
+  if (!steps.length) { container.innerHTML = '<span style="font-size:12px;color:var(--text3);">Link batches above to see sequence</span>'; return; }
+  container.innerHTML = steps.map((op, i) => {
+    const c = SC[OP_STAGE[op]];
+    return `${i > 0 ? '<span class="arrow-sep" style="font-size:13px;">→</span>' : ''}<span class="seq-pill" style="background:${c.bg};color:${c.color};font-size:12px;padding:3px 10px;">${op}</span>`;
+  }).join('');
+}
+
+function saveGroup() {
+  const groupId   = document.getElementById('newGroupId').value.trim();
+  const name      = document.getElementById('newGroupName').value.trim();
+  const notes     = document.getElementById('newGroupNotes').value.trim();
+  const editId    = document.getElementById('editGroupId').value;
+
+  if (!groupId || !name) { toast('Fill Group ID and Name', 'error'); return; }
+  if (tempGroupBatches.length < 1) { toast('Link at least one batch', 'error'); return; }
+
+  const postCutSteps = getGroupPostCutSteps(tempGroupBatches);
+  if (!postCutSteps.length) { toast('Linked batches have no post-cutting steps', 'error'); return; }
+
+  if (editId) {
+    const g = S.groups.find(x => x.groupId === editId);
+    if (g) { g.name = name; g.notes = notes; g.batchNos = [...tempGroupBatches]; g.postCutSteps = postCutSteps; }
+    toast('Group updated ✓', 'success');
+  } else {
+    if (S.groups.find(g => g.groupId === groupId)) { toast('Group ID already exists', 'error'); return; }
+    S.groups.push({
+      groupId, name, notes, batchNos: [...tempGroupBatches],
+      postCutSteps, created: new Date().toISOString().split('T')[0], archived: false
+    });
+    toast(`Group ${groupId} created ✓`, 'success');
+  }
+  persist(); renderAll(); closeModal('groupModal');
+  queueSync('GroupMaster');
+}
+
+// Get total good cutting pieces for a group (sum across all linked batches)
+function getGroupCutTotal(group) {
+  return (group.batchNos || []).reduce((total, bNo) => {
+    const b = S.batches.find(x => x.batchNo === bNo);
+    if (!b) return total;
+    const cutIdx = (b.processSteps || []).indexOf('Cutting');
+    if (cutIdx < 0) return total;
+    const stats = getStepStats(bNo, cutIdx);
+    return total + (stats ? stats.good : 0);
+  }, 0);
+}
+
+// Get step stats for group — incoming = group cut total or prev step good
+function getGroupStepStats(groupId, stepIdx, excludeId=null) {
+  const group = S.groups.find(g => g.groupId === groupId);
+  if (!group) return null;
+  const steps = group.postCutSteps || [];
+  if (stepIdx < 0 || stepIdx >= steps.length) return null;
+  const op = steps[stepIdx];
+
+  let incoming;
+  if (stepIdx === 0) {
+    incoming = getGroupCutTotal(group);
+  } else {
+    const prev = getGroupStepStats(groupId, stepIdx - 1, excludeId);
+    incoming = prev ? prev.good : 0;
+  }
+
+  // Logs are stored with batchNo = groupId
+  const logs = S.logs.filter(l => l.batchNo === groupId && l.operation === op && l.id !== excludeId);
+  const good = logs.reduce((a, l) => a + (parseInt(l.pieces) || 0), 0);
+  const rej  = logs.reduce((a, l) => a + (parseInt(l.rejections) || 0), 0);
+  const consumed = good + rej;
+  const remaining = incoming - consumed;
+  return { op, incoming, good, rej, consumed, remaining };
+}
+
+function getGroupAvailable(groupId, op, excludeId=null) {
+  const group = S.groups.find(g => g.groupId === groupId);
+  if (!group) return null;
+  const steps = group.postCutSteps || [];
+  const idx = steps.indexOf(op);
+  if (idx < 0) return null;
+  const stats = getGroupStepStats(groupId, idx, excludeId);
+  return stats ? stats.remaining : null;
+}
+
+function renderGroups() {
+  const tbody = document.getElementById('groupTable');
+  if (!tbody) return;
+  if (!S.groups.length) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:28px;color:var(--text3);">No groups created yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = S.groups.map(g => {
+    const cutTotal = getGroupCutTotal(g);
+    const seq = (g.postCutSteps || []).map((op, i) => {
+      const c = SC[OP_STAGE[op]];
+      return `${i > 0 ? '<span class="arrow-sep">→</span>' : ''}<span class="seq-pill" style="background:${c.bg};color:${c.color};">${op}</span>`;
+    }).join('');
+    const batchLinks = (g.batchNos || []).map(bNo => `<span style="background:#f1f5f9;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;">#${bNo}</span>`).join(' ');
+    return `<tr>
+      <td><strong>${g.groupId}</strong></td>
+      <td><strong>${g.name}</strong></td>
+      <td>${batchLinks}</td>
+      <td style="font-weight:700;">${cutTotal > 0 ? cutTotal : '<span style="color:var(--text3);">—</span>'}</td>
+      <td><div class="seq-display">${seq}</div></td>
+      <td style="color:#7c3aed;font-size:12px;font-style:italic;">${g.notes || '—'}</td>
+      <td>${g.created}</td>
+      <td><span class="badge ${g.archived ? 'badge-archived' : 'badge-active'}">${g.archived ? 'Archived' : 'Active'}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="openGroupModal('${g.groupId}')">✏️</button>
+        ${g.archived
+          ? `<button class="btn btn-ghost btn-sm" onclick="reopenGroup('${g.groupId}')">🔓</button>`
+          : `<button class="btn btn-success btn-sm" onclick="completeGroup('${g.groupId}')">✅</button>`}
+        <button class="btn btn-danger btn-sm" onclick="deleteGroup('${g.groupId}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function completeGroup(groupId) {
+  if (!confirm(`Archive group ${groupId}?`)) return;
+  const g = S.groups.find(x => x.groupId === groupId);
+  if (g) { g.archived = true; persist(); renderAll(); toast('Group archived ✓', 'success'); queueSync('GroupMaster'); }
+}
+function reopenGroup(groupId) {
+  if (!confirm(`Reopen group ${groupId}?`)) return;
+  const g = S.groups.find(x => x.groupId === groupId);
+  if (g) { g.archived = false; persist(); renderAll(); toast('Reopened', 'info'); queueSync('GroupMaster'); }
+}
+function deleteGroup(groupId) {
+  if (!confirm(`Delete group ${groupId} and all its logs?`)) return;
+  S.groups = S.groups.filter(g => g.groupId !== groupId);
+  S.logs = S.logs.filter(l => l.batchNo !== groupId);
+  persist(); renderAll(); toast('Deleted', 'info');
+  queueSync('GroupMaster'); queueSync('Logs');
+}
+
 // ===== FORCE SYNC =====
 async function forceSyncAll(){
   if(!S.accessToken){toast('Please sign in first','error');return;}
   updateSyncStatus('syncing');
   try {
-    await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()]);
+    await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncGroupToSheets(),syncAllLogsToSheets()]);
     updateSyncStatus('ok');
     toast('All data synced ✓','success');
   } catch(e){ updateSyncStatus('error'); toast('Sync failed','error'); }
