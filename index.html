@@ -215,6 +215,7 @@
       box-shadow:0 -2px 10px rgba(0,0,0,0.08);
       height:60px;
     }
+    /* ensure mobile nav only shows on mobile */
     .mobile-nav-btn {
       flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
       gap:2px; border:none; background:transparent; color:var(--text2);
@@ -303,7 +304,7 @@
 
   /* Tablet adjustments */
   @media (min-width:769px) {
-    .mobile-nav { display:none; }
+    .mobile-nav { display:none!important; }
   }
 
   @media (max-width:480px) {
@@ -365,7 +366,7 @@
   </div>
 
   <!-- MOBILE BOTTOM TAB BAR -->
-  <div class="mobile-nav" id="mobileNav">
+  <div class="mobile-nav" id="mobileNav" style="display:none;">
     <button class="mobile-nav-btn active" data-page="kanban" onclick="mobileNav(this,'kanban')">
       <span class="mnav-icon">📋</span>Kanban
     </button>
@@ -695,6 +696,9 @@
     <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Select the batches whose cutting pieces will be combined. Their post-cutting sequence will be inherited by this group.</p>
     <div id="groupBatchPicker" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
     <div id="groupLinkedBatches" style="margin-top:8px;"></div>
+    <div id="groupRatioNote" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:#92400e;">
+      💡 <strong>Ratio</strong> = how many pieces of this batch are needed per finished product. Default is 1. Set to 2 if you need 2 pieces per product.
+    </div>
     <div class="divider"></div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600;">POST-CUTTING SEQUENCE (inherited)</div>
     <div id="groupSeqPreview" style="display:flex;flex-wrap:wrap;gap:3px;align-items:center;min-height:28px;padding:6px 0;"></div>
@@ -906,7 +910,7 @@ function setupTokenClient(){
       // Hide login, show app
       document.getElementById('loginScreen').classList.remove('show');
       document.getElementById('mainApp').style.display='block';
-      document.getElementById('mobileNav').style.display='flex';
+      if(window.innerWidth<=768) document.getElementById('mobileNav').style.display='flex';
       toast('Signed in ✓','success');
       renderAll();
       // First pull from Sheets; if empty push local data up
@@ -970,9 +974,17 @@ function renderKanban(){
   const selDate=document.getElementById('kanbanDate').value;
   const selBatch=document.getElementById('kanbanBatchFilter').value;
   const showArch=document.getElementById('showArchived').checked;
+  // Collect all batch nos that belong to a group (hide them from individual rows)
+  const groupedBatchNos = new Set(
+    (S.groups||[]).flatMap(g => g.batchNos || [])
+  );
+
   let batches=S.batches.filter(b=>{
     if(!showArch&&b.archived) return false;
     if(selBatch&&b.batchNo!==selBatch) return false;
+    // If this batch is part of a group, hide it from individual rows
+    // (it will appear inside the group row instead)
+    if(groupedBatchNos.has(b.batchNo)) return false;
     return true;
   });
   if(!batches.length){wrap.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>No batches to display</p></div>';return;}
@@ -1039,11 +1051,45 @@ function renderKanban(){
     const cutTotal=getGroupCutTotal(g);
     const gStats={};
     steps.forEach((op,i)=>{gStats[op]=getGroupStepStats(g.groupId,i);});
-    const batchSummary=(g.batchNos||[]).map(bNo=>`<span style="font-size:10px;background:#f1f5f9;border-radius:3px;padding:1px 5px;margin-right:2px;">#${bNo}</span>`).join('');
+
+    // Build per-batch cutting summary with ratio for the Cutting column
+    const caps = getGroupBatchCapacities(g);
+    const perBatchCutHtml=caps.map(({bNo,good,ratio,capacity})=>{
+      const b=S.batches.find(x=>x.batchNo===bNo);
+      const todayCut=S.logs.filter(l=>l.batchNo===bNo&&l.operation==='Cutting'&&l.date===selDate).reduce((a,l)=>a+(parseInt(l.pieces)||0),0);
+      return `<div style="font-size:11px;border-bottom:1px solid #fde68a;padding:3px 0;">
+        <span style="font-weight:700;color:#92400e;">#${bNo}</span>
+        ${ratio>1?`<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:3px;padding:0 4px;margin-left:2px;">${ratio}x</span>`:''}
+        ${b&&b.notes?`<span style="font-size:10px;color:#7c3aed;"> ${b.notes.substring(0,10)}</span>`:''}
+        <span style="float:right;font-weight:700;">${good>0?good+' cut':'—'}</span>
+        ${good>0&&ratio>1?`<div style="font-size:10px;color:#2563eb;text-align:right;">${good}÷${ratio}= ${capacity} products</div>`:''}
+        ${todayCut>0?`<div style="font-size:10px;color:#7c3aed;text-align:right;">Today: ${todayCut}</div>`:''}
+      </div>`;
+    }).join('');
+    const allCut = caps.every(c=>c.good>0);
+    const cutSummary = allCut
+      ? `${perBatchCutHtml}<div style="font-size:12px;font-weight:800;color:#16a34a;padding-top:4px;border-top:1px solid #bbf7d0;margin-top:2px;">✓ ${cutTotal} products</div>`
+      : `${perBatchCutHtml}${caps.some(c=>c.good>0)?'<div style="font-size:10px;color:#d97706;margin-top:3px;">⚠ Waiting for all batches</div>':'<span class="cell-pending">⏳ Not started</span>'}`;
+
+    const batchBadges=(g.batchNos||[]).map(bNo=>`<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 6px;margin-right:2px;font-weight:600;">#${bNo}</span>`).join('');
+
     rows+=`<tr style="background:#fffbeb;">`;
-    rows+=`<td class="batch-cell"><strong style="color:#b45309;">${g.groupId}</strong> <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;font-weight:700;">GROUP</span><br><span style="font-size:11px;color:var(--text2);font-weight:400;">${g.name}</span><br><div style="margin-top:3px;">${batchSummary}</div>${g.notes?`<div class="batch-note">📝 ${g.notes}</div>`:''}</td>`;
+    rows+=`<td class="batch-cell">
+      <strong style="color:#b45309;">${g.groupId}</strong>
+      <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px;margin-left:4px;font-weight:700;">GROUP</span><br>
+      <span style="font-size:11px;color:var(--text2);font-weight:400;">${g.name}</span><br>
+      <div style="margin-top:3px;">${batchBadges}</div>
+      ${g.notes?`<div class="batch-note">📝 ${g.notes}</div>`:''}
+    </td>`;
     rows+=`<td class="totalpcs-cell" style="font-weight:700;">${cutTotal>0?cutTotal:'<span style="color:var(--text3);">—</span>'}</td>`;
+
     allOps.forEach(op=>{
+      // Cutting column — show per-batch breakdown
+      if(op==='Cutting'){
+        rows+=`<td style="text-align:left;padding:6px 10px;">${cutSummary}</td>`;
+        return;
+      }
+      // Post-cut steps
       if(!steps.includes(op)){rows+=`<td class="cell-na">N/A</td>`;return;}
       const d=gStats[op];if(!d){rows+=`<td>—</td>`;return;}
       const isLast=steps[steps.length-1]===op;
@@ -1141,7 +1187,10 @@ function downloadFullBackup(){
 
   // Groups
   const grpRows=[['Group ID','Name','Batch Nos','Post-Cut Steps','Notes','Created','Archived']];
-  (S.groups||[]).forEach(g=>grpRows.push([g.groupId,g.name,(g.batchNos||[]).join('|'),(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE']));
+  (S.groups||[]).forEach(g=>{
+    const ratioStr=(g.batchNos||[]).map(bNo=>`${bNo}:${(g.ratios||{})[bNo]||1}`).join('|');
+    grpRows.push([g.groupId,g.name,(g.batchNos||[]).join('|'),ratioStr,(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE']);
+  });
   const grpWs=XLSX.utils.aoa_to_sheet(grpRows);
   grpWs['!cols']=[{wch:12},{wch:25},{wch:30},{wch:80},{wch:30},{wch:12},{wch:10}];
   XLSX.utils.book_append_sheet(wb,grpWs,'GroupMaster');
@@ -1191,7 +1240,12 @@ function restoreFromBackup(event){
       const grpSheet=wb.Sheets['GroupMaster'];
       if(grpSheet){
         const grpData=XLSX.utils.sheet_to_json(grpSheet,{header:1});
-        S.groups=grpData.slice(1).filter(r=>r[0]).map(r=>({groupId:r[0]||'',name:r[1]||'',batchNos:(r[2]||'').split('|').filter(Boolean),postCutSteps:(r[3]||'').split('|').filter(Boolean),notes:r[4]||'',created:r[5]||'',archived:(r[6]||'')==='TRUE'}));
+        S.groups=grpData.slice(1).filter(r=>r[0]).map(r=>{
+          const batchNos=(r[2]||'').split('|').filter(Boolean);
+          const ratios={};
+          (r[3]||'').split('|').filter(Boolean).forEach(pair=>{const[bNo,ratio]=pair.split(':');if(bNo)ratios[bNo]=parseInt(ratio)||1;});
+          return {groupId:r[0]||'',name:r[1]||'',batchNos,ratios,postCutSteps:(r[4]||'').split('|').filter(Boolean),notes:r[5]||'',created:r[6]||'',archived:(r[7]||'')==='TRUE'};
+        });
       }
       // Logs
       const logSheet=wb.Sheets['Logs'];
@@ -1607,7 +1661,14 @@ async function syncAllFromSheets(){
   if(lR?.values&&lR.values.length) S.labours=lR.values.map(r=>({name:r[0]||'',active:(r[1]||'TRUE')==='TRUE'}));
   if(pR?.values&&pR.values.length) S.products=pR.values.map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
   if(bR?.values&&bR.values.length) S.batches=bR.values.map(r=>({batchNo:r[0]||'',product:r[1]||'',processSteps:(r[2]||'').split('|').filter(Boolean),notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'}));
-  if(gR?.values&&gR.values.length) S.groups=gR.values.map(r=>({groupId:r[0]||'',name:r[1]||'',batchNos:(r[2]||'').split('|').filter(Boolean),postCutSteps:(r[3]||'').split('|').filter(Boolean),notes:r[4]||'',created:r[5]||'',archived:(r[6]||'')==='TRUE'}));
+  if(gR?.values&&gR.values.length) S.groups=gR.values.map(r=>{
+    const batchNos=(r[2]||'').split('|').filter(Boolean);
+    // r[3] = ratios like "B-001:1|B-002:2", r[4] = postCutSteps
+    const ratioStr=r[3]||'';
+    const ratios={};
+    ratioStr.split('|').filter(Boolean).forEach(pair=>{const[bNo,ratio]=pair.split(':');if(bNo)ratios[bNo]=parseInt(ratio)||1;});
+    return {groupId:r[0]||'',name:r[1]||'',batchNos,ratios,postCutSteps:(r[4]||'').split('|').filter(Boolean),notes:r[5]||'',created:r[6]||'',archived:(r[7]||'')==='TRUE'};
+  });
   if(logR?.values&&logR.values.length) S.logs=logR.values.map(r=>({id:String(r[0]||''),date:r[1]||'',batchNo:r[2]||'',product:r[3]||'',labour:r[4]||'',stage:r[5]||'',operation:r[6]||'',pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''}));
   persist();renderAll();toast('Synced ✓','success');
 }
@@ -1623,9 +1684,12 @@ async function syncAllLogsToSheets(){
 }
 async function syncGroupToSheets(){
   if(!S.sheetId||!S.accessToken) return;
-  const h=[['Group ID','Name','Batch Nos','Post-Cut Steps','Notes','Created','Archived']];
-  const rows=(S.groups||[]).map(g=>[g.groupId,g.name,(g.batchNos||[]).join('|'),(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE']);
-  await sheetsReq('PUT','GroupMaster!A1:G',[...h,...rows]);
+  const h=[['Group ID','Name','Batch Nos','Ratios','Post-Cut Steps','Notes','Created','Archived']];
+  const rows=(S.groups||[]).map(g=>{
+    const ratioStr=(g.batchNos||[]).map(bNo=>`${bNo}:${(g.ratios||{})[bNo]||1}`).join('|');
+    return [g.groupId,g.name,(g.batchNos||[]).join('|'),ratioStr,(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE'];
+  });
+  await sheetsReq('PUT','GroupMaster!A1:H',[...h,...rows]);
 }
 
 async function syncLabourToSheets(){
@@ -1650,10 +1714,12 @@ function nextGroupId() {
 
 function openGroupModal(editId=null) {
   tempGroupBatches = [];
+  tempGroupRatios = {};
   if (editId) {
     const g = S.groups.find(x => x.groupId === editId);
     if (!g) return;
     tempGroupBatches = [...(g.batchNos || [])];
+    tempGroupRatios = Object.assign({}, g.ratios || {});
     document.getElementById('groupModalTitle').textContent = 'Edit Group';
     document.getElementById('editGroupId').value = editId;
     document.getElementById('newGroupId').value = g.groupId;
@@ -1705,6 +1771,7 @@ function renderGroupBatchPicker() {
 function addBatchToGroup(bNo) {
   if (tempGroupBatches.includes(bNo)) return;
   tempGroupBatches.push(bNo);
+  if (!tempGroupRatios[bNo]) tempGroupRatios[bNo] = 1; // default ratio
   renderGroupBatchPicker();
   renderGroupLinked();
   renderGroupSeqPreview();
@@ -1712,27 +1779,87 @@ function addBatchToGroup(bNo) {
 
 function removeBatchFromGroup(bNo) {
   tempGroupBatches = tempGroupBatches.filter(b => b !== bNo);
+  delete tempGroupRatios[bNo];
   renderGroupBatchPicker();
   renderGroupLinked();
   renderGroupSeqPreview();
 }
 
+// tempGroupRatios stores ratio per batchNo
+let tempGroupRatios = {};
+
 function renderGroupLinked() {
   const container = document.getElementById('groupLinkedBatches');
-  if (!tempGroupBatches.length) { container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No batches linked yet.</span>'; return; }
-  container.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Linked Batches:</div>' +
+  const noteEl = document.getElementById('groupRatioNote');
+  if (!tempGroupBatches.length) {
+    container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No batches linked yet.</span>';
+    if (noteEl) noteEl.style.display = 'none';
+    return;
+  }
+  if (noteEl) noteEl.style.display = 'block';
+
+  container.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Linked Batches & Ratios:</div>' +
     tempGroupBatches.map(bNo => {
       const b = S.batches.find(x => x.batchNo === bNo);
-      const cutGood = b ? getStepStats(bNo, 0) : null;
-      const pcs = cutGood ? cutGood.good : 0;
-      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;margin-bottom:5px;">
-        <strong style="font-size:13px;">#${bNo}</strong>
-        <span style="font-size:12px;color:var(--text2);">${b ? b.product : ''}</span>
-        ${b && b.notes ? '<span style="font-size:11px;color:#7c3aed;font-style:italic;">'+b.notes+'</span>' : ''}
-        <span style="margin-left:auto;font-size:12px;font-weight:700;color:var(--green);">Cut: ${pcs} pcs</span>
-        <button onclick="removeBatchFromGroup('${bNo}')" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;padding:0 2px;">✕</button>
+      const cutIdx = b ? (b.processSteps||[]).indexOf('Cutting') : -1;
+      const cs = cutIdx >= 0 ? getStepStats(bNo, cutIdx) : null;
+      const pcs = cs ? cs.good : 0;
+      const ratio = tempGroupRatios[bNo] || 1;
+      const capacity = ratio > 0 && pcs > 0 ? Math.floor(pcs / ratio) : '—';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;flex-wrap:wrap;">
+        <strong style="font-size:13px;min-width:55px;">#${bNo}</strong>
+        <span style="font-size:12px;color:var(--text2);flex:1;">${b ? b.product : ''}${b&&b.notes?' <em style="color:#7c3aed;font-size:11px;">('+b.notes+')</em>':''}</span>
+        <span style="font-size:12px;color:var(--green);font-weight:700;">Cut: ${pcs>0?pcs:'—'}</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text2);white-space:nowrap;">Ratio (pcs/product):</label>
+          <input type="number" min="1" value="${ratio}"
+            style="width:64px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:700;text-align:center;"
+            onchange="setGroupRatio('${bNo}', this.value)"
+            oninput="setGroupRatio('${bNo}', this.value)">
+        </div>
+        <span style="font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap;">→ ${capacity} products</span>
+        <button onclick="removeBatchFromGroup('${bNo}')" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;padding:0 4px;line-height:1;">✕</button>
       </div>`;
-    }).join('');
+    }).join('') +
+    (tempGroupBatches.length > 0 ? `
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-top:8px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:13px;font-weight:600;color:#166534;">Group Capacity (bottleneck)</span>
+        <span style="font-size:18px;font-weight:800;color:#16a34a;" id="groupCapacityDisplay">— pcs</span>
+      </div>` : '');
+
+  updateGroupCapacityDisplay();
+}
+
+function setGroupRatio(bNo, val) {
+  const r = parseInt(val) || 1;
+  tempGroupRatios[bNo] = Math.max(1, r);
+  // Recalc capacity display without full re-render (avoid cursor jump)
+  const ratio = tempGroupRatios[bNo];
+  const b = S.batches.find(x => x.batchNo === bNo);
+  const cutIdx = b ? (b.processSteps||[]).indexOf('Cutting') : -1;
+  const cs = cutIdx >= 0 ? getStepStats(bNo, cutIdx) : null;
+  const pcs = cs ? cs.good : 0;
+  const capacity = ratio > 0 && pcs > 0 ? Math.floor(pcs / ratio) : '—';
+  // Update the → products span next to this batch
+  updateGroupCapacityDisplay();
+}
+
+function updateGroupCapacityDisplay() {
+  const el = document.getElementById('groupCapacityDisplay');
+  if (!el || !tempGroupBatches.length) return;
+  const caps = tempGroupBatches.map(bNo => {
+    const b = S.batches.find(x => x.batchNo === bNo);
+    const cutIdx = b ? (b.processSteps||[]).indexOf('Cutting') : -1;
+    const cs = cutIdx >= 0 ? getStepStats(bNo, cutIdx) : null;
+    const good = cs ? cs.good : 0;
+    const ratio = tempGroupRatios[bNo] || 1;
+    return good > 0 ? Math.floor(good / ratio) : null;
+  });
+  const allDone = caps.every(c => c !== null);
+  if (!allDone) { el.textContent = '— pcs (cutting not done for all batches)'; el.style.color='#94a3b8'; return; }
+  const min = Math.min(...caps);
+  el.textContent = min + ' finished products';
+  el.style.color = '#16a34a';
 }
 
 function getGroupPostCutSteps(batchNos) {
@@ -1769,12 +1896,13 @@ function saveGroup() {
 
   if (editId) {
     const g = S.groups.find(x => x.groupId === editId);
-    if (g) { g.name = name; g.notes = notes; g.batchNos = [...tempGroupBatches]; g.postCutSteps = postCutSteps; }
+    if (g) { g.name = name; g.notes = notes; g.batchNos = [...tempGroupBatches]; g.ratios = Object.assign({}, tempGroupRatios); g.postCutSteps = postCutSteps; }
     toast('Group updated ✓', 'success');
   } else {
     if (S.groups.find(g => g.groupId === groupId)) { toast('Group ID already exists', 'error'); return; }
     S.groups.push({
       groupId, name, notes, batchNos: [...tempGroupBatches],
+      ratios: Object.assign({}, tempGroupRatios),
       postCutSteps, created: new Date().toISOString().split('T')[0], archived: false
     });
     toast(`Group ${groupId} created ✓`, 'success');
@@ -1783,16 +1911,29 @@ function saveGroup() {
   queueSync('GroupMaster');
 }
 
-// Get total good cutting pieces for a group (sum across all linked batches)
-function getGroupCutTotal(group) {
-  return (group.batchNos || []).reduce((total, bNo) => {
+// Get capacity for each batch in group: good ÷ ratio
+function getGroupBatchCapacities(group) {
+  return (group.batchNos || []).map(bNo => {
     const b = S.batches.find(x => x.batchNo === bNo);
-    if (!b) return total;
+    if (!b) return { bNo, good: 0, ratio: 1, capacity: 0 };
     const cutIdx = (b.processSteps || []).indexOf('Cutting');
-    if (cutIdx < 0) return total;
-    const stats = getStepStats(bNo, cutIdx);
-    return total + (stats ? stats.good : 0);
-  }, 0);
+    const stats = cutIdx >= 0 ? getStepStats(bNo, cutIdx) : null;
+    const good = stats ? stats.good : 0;
+    const ratios = group.ratios || {};
+    const ratio = ratios[bNo] || 1;
+    const capacity = ratio > 0 ? Math.floor(good / ratio) : 0;
+    return { bNo, good, ratio, capacity };
+  });
+}
+
+// Group's available pieces = min capacity across all linked batches
+// Returns 0 if no cutting done yet
+function getGroupCutTotal(group) {
+  const caps = getGroupBatchCapacities(group);
+  if (!caps.length) return 0;
+  const allDone = caps.every(c => c.good > 0);
+  if (!allDone) return 0; // not all batches have cutting done
+  return Math.min(...caps.map(c => c.capacity));
 }
 
 // Get step stats for group — incoming = group cut total or prev step good
@@ -1843,7 +1984,10 @@ function renderGroups() {
       const c = SC[OP_STAGE[op]];
       return `${i > 0 ? '<span class="arrow-sep">→</span>' : ''}<span class="seq-pill" style="background:${c.bg};color:${c.color};">${op}</span>`;
     }).join('');
-    const batchLinks = (g.batchNos || []).map(bNo => `<span style="background:#f1f5f9;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;">#${bNo}</span>`).join(' ');
+    const batchLinks = (g.batchNos || []).map(bNo => {
+      const ratio=(g.ratios||{})[bNo]||1;
+      return `<span style="background:#f1f5f9;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;">#${bNo}${ratio>1?` <span style="color:var(--accent);font-size:10px;">${ratio}x</span>`:''}</span>`;
+    }).join(' ');
     return `<tr>
       <td><strong>${g.groupId}</strong></td>
       <td><strong>${g.name}</strong></td>
