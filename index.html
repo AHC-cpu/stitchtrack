@@ -700,8 +700,13 @@
       💡 <strong>Ratio</strong> = how many pieces of this batch are needed per finished product. Default is 1. Set to 2 if you need 2 pieces per product.
     </div>
     <div class="divider"></div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600;">POST-CUTTING SEQUENCE (inherited)</div>
-    <div id="groupSeqPreview" style="display:flex;flex-wrap:wrap;gap:3px;align-items:center;min-height:28px;padding:6px 0;"></div>
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;margin-bottom:4px;">Post-Cutting Sequence</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">Auto-inherited from linked batch. You can add, remove or reorder steps freely.</p>
+    <div id="groupOpPicker"></div>
+    <div class="divider" style="margin:10px 0;"></div>
+    <div style="font-family:'Syne',sans-serif;font-weight:600;font-size:13px;margin-bottom:8px;">Selected Sequence:</div>
+    <div id="groupProcessList" class="process-list"></div>
+    <div id="groupProcessEmpty" style="color:var(--text3);font-size:13px;font-style:italic;padding:6px 0;display:none;">No operations added yet.</div>
     <div style="margin-top:18px;display:flex;gap:10px;">
       <button class="btn btn-primary" onclick="saveGroup()">Save Group</button>
       <button class="btn btn-ghost" onclick="closeModal('groupModal')">Cancel</button>
@@ -1705,6 +1710,7 @@ async function syncBatchToSheets(){
 // ===== BATCH GROUPS =====
 
 let tempGroupBatches = []; // temp while building group
+let tempGroupSteps = [];   // temp sequence for group (editable)
 
 function nextGroupId() {
   if (!S.groups.length) return 'G-001';
@@ -1715,26 +1721,29 @@ function nextGroupId() {
 function openGroupModal(editId=null) {
   tempGroupBatches = [];
   tempGroupRatios = {};
+  tempGroupSteps  = [];
   if (editId) {
     const g = S.groups.find(x => x.groupId === editId);
     if (!g) return;
     tempGroupBatches = [...(g.batchNos || [])];
-    tempGroupRatios = Object.assign({}, g.ratios || {});
+    tempGroupRatios  = Object.assign({}, g.ratios || {});
+    tempGroupSteps   = [...(g.postCutSteps || [])];
     document.getElementById('groupModalTitle').textContent = 'Edit Group';
     document.getElementById('editGroupId').value = editId;
-    document.getElementById('newGroupId').value = g.groupId;
+    document.getElementById('newGroupId').value  = g.groupId;
     document.getElementById('newGroupName').value = g.name;
     document.getElementById('newGroupNotes').value = g.notes || '';
   } else {
     document.getElementById('groupModalTitle').textContent = 'Create Batch Group';
-    document.getElementById('editGroupId').value = '';
-    document.getElementById('newGroupId').value = nextGroupId();
+    document.getElementById('editGroupId').value  = '';
+    document.getElementById('newGroupId').value   = nextGroupId();
     document.getElementById('newGroupName').value = '';
     document.getElementById('newGroupNotes').value = '';
   }
   renderGroupBatchPicker();
   renderGroupLinked();
-  renderGroupSeqPreview();
+  renderGroupOpPicker();
+  renderGroupStepsList();
   closeModal('batchModal');
   openModal('groupModal');
 }
@@ -1771,10 +1780,16 @@ function renderGroupBatchPicker() {
 function addBatchToGroup(bNo) {
   if (tempGroupBatches.includes(bNo)) return;
   tempGroupBatches.push(bNo);
-  if (!tempGroupRatios[bNo]) tempGroupRatios[bNo] = 1; // default ratio
+  if (!tempGroupRatios[bNo]) tempGroupRatios[bNo] = 1;
+  // Auto-inherit sequence from first batch added, only if steps are empty
+  if (!tempGroupSteps.length) {
+    const inherited = getGroupPostCutSteps([bNo]);
+    tempGroupSteps = [...inherited];
+  }
   renderGroupBatchPicker();
   renderGroupLinked();
-  renderGroupSeqPreview();
+  renderGroupOpPicker();
+  renderGroupStepsList();
 }
 
 function removeBatchFromGroup(bNo) {
@@ -1782,7 +1797,8 @@ function removeBatchFromGroup(bNo) {
   delete tempGroupRatios[bNo];
   renderGroupBatchPicker();
   renderGroupLinked();
-  renderGroupSeqPreview();
+  renderGroupOpPicker();
+  renderGroupStepsList();
 }
 
 // tempGroupRatios stores ratio per batchNo
@@ -1872,14 +1888,80 @@ function getGroupPostCutSteps(batchNos) {
   return cutIdx >= 0 ? steps.slice(cutIdx + 1) : steps;
 }
 
-function renderGroupSeqPreview() {
-  const steps = getGroupPostCutSteps(tempGroupBatches);
-  const container = document.getElementById('groupSeqPreview');
-  if (!steps.length) { container.innerHTML = '<span style="font-size:12px;color:var(--text3);">Link batches above to see sequence</span>'; return; }
-  container.innerHTML = steps.map((op, i) => {
-    const c = SC[OP_STAGE[op]];
-    return `${i > 0 ? '<span class="arrow-sep" style="font-size:13px;">→</span>' : ''}<span class="seq-pill" style="background:${c.bg};color:${c.color};font-size:12px;padding:3px 10px;">${op}</span>`;
+// ── Group sequence builder functions ───────────────────────────────────
+
+function renderGroupOpPicker() {
+  const container = document.getElementById('groupOpPicker');
+  if (!container) return;
+  // Only show non-Cutting operations (Cutting is handled by linked batches)
+  const filteredOps = Object.entries(ALL_OPS).filter(([stage]) => stage !== 'Cutting');
+  container.innerHTML = filteredOps.map(([stage, ops]) => {
+    const c = SC[stage];
+    return `<div class="op-group">
+      <div class="op-group-title" style="color:${c.color};">${stage}</div>
+      <div class="op-chips">${ops.map(op => {
+        const added = tempGroupSteps.includes(op);
+        return `<span class="op-chip${added ? ' added' : ''}" onclick="addGroupStep('${op}')"
+          style="${added ? `border-color:${c.color};color:${c.color};background:${c.bg};` : ''}">
+          ${op}${added ? ' ✓' : ''}
+        </span>`;
+      }).join('')}</div>
+    </div>`;
   }).join('');
+}
+
+function addGroupStep(op) {
+  if (tempGroupSteps.includes(op)) return;
+  tempGroupSteps.push(op);
+  renderGroupOpPicker();
+  renderGroupStepsList();
+}
+
+function removeGroupStep(i) {
+  tempGroupSteps.splice(i, 1);
+  renderGroupOpPicker();
+  renderGroupStepsList();
+}
+
+function moveGroupStep(i, d) {
+  const ni = i + d;
+  if (ni < 0 || ni >= tempGroupSteps.length) return;
+  [tempGroupSteps[i], tempGroupSteps[ni]] = [tempGroupSteps[ni], tempGroupSteps[i]];
+  renderGroupStepsList();
+}
+
+function renderGroupStepsList() {
+  const list = document.getElementById('groupProcessList');
+  const empty = document.getElementById('groupProcessEmpty');
+  if (!list) return;
+  if (!tempGroupSteps.length) {
+    list.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  list.innerHTML = tempGroupSteps.map((op, i) => {
+    const c = SC[OP_STAGE[op]];
+    return `<div class="process-step">
+      <div class="ps-num">${i + 1}</div>
+      <div class="ps-name">${op}</div>
+      <div class="ps-stage" style="color:${c.color};">${OP_STAGE[op]}</div>
+      <button class="ps-up" onclick="moveGroupStep(${i}, -1)">↑</button>
+      <button class="ps-dn" onclick="moveGroupStep(${i},  1)">↓</button>
+      <button class="ps-del" onclick="removeGroupStep(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// Keep getGroupPostCutSteps for auto-inherit (used on batch link)
+function renderGroupSeqPreview() {
+  // Now called after batches are linked — auto-populate tempGroupSteps if empty
+  if (!tempGroupSteps.length && tempGroupBatches.length) {
+    const inherited = getGroupPostCutSteps(tempGroupBatches);
+    tempGroupSteps = [...inherited];
+  }
+  renderGroupOpPicker();
+  renderGroupStepsList();
 }
 
 function saveGroup() {
@@ -1891,8 +1973,8 @@ function saveGroup() {
   if (!groupId || !name) { toast('Fill Group ID and Name', 'error'); return; }
   if (tempGroupBatches.length < 1) { toast('Link at least one batch', 'error'); return; }
 
-  const postCutSteps = getGroupPostCutSteps(tempGroupBatches);
-  if (!postCutSteps.length) { toast('Linked batches have no post-cutting steps', 'error'); return; }
+  if (!tempGroupSteps.length) { toast('Add at least one operation to the sequence', 'error'); return; }
+  const postCutSteps = [...tempGroupSteps];
 
   if (editId) {
     const g = S.groups.find(x => x.groupId === editId);
