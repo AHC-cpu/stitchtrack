@@ -194,6 +194,136 @@
     .kt td,.kt th{font-size:10px;padding:5px 7px;}
     .kanban-table-wrap{border:1px solid #ccc;border-radius:0;}
   }
+
+  /* ===== MOBILE RESPONSIVE ===== */
+  @media (max-width: 768px) {
+    /* Header: stack logo + nav bottom bar */
+    .header { padding:0 14px; height:56px; }
+    .logo { font-size:17px; }
+    .nav { display:none; } /* hidden — replaced by bottom tab bar */
+    .header-right { gap:6px; }
+    .sync-btn { display:none; } /* hide on mobile, use sync status only */
+    .user-pill span { display:none; } /* show only avatar */
+    .user-pill { padding:4px 8px; }
+    .signout-btn { padding:5px 10px; font-size:11px; }
+    #syncStatus { font-size:11px; min-width:60px; }
+
+    /* Bottom tab bar for mobile navigation */
+    .mobile-nav {
+      display:flex; position:fixed; bottom:0; left:0; right:0; z-index:200;
+      background:#fff; border-top:1px solid var(--border);
+      box-shadow:0 -2px 10px rgba(0,0,0,0.08);
+      height:60px;
+    }
+    .mobile-nav-btn {
+      flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:2px; border:none; background:transparent; color:var(--text2);
+      font-family:'DM Sans',sans-serif; font-size:10px; font-weight:500; cursor:pointer;
+      padding:6px 2px; transition:var(--tr);
+    }
+    .mobile-nav-btn .mnav-icon { font-size:18px; line-height:1; }
+    .mobile-nav-btn.active { color:var(--accent); }
+    .mobile-nav-btn.active .mnav-icon { transform:scale(1.15); }
+
+    /* Add padding so content not hidden behind bottom tab bar */
+    .page { padding:16px 14px 76px 14px; }
+
+    /* Section headers: stack on mobile */
+    .section-header { flex-direction:column; align-items:flex-start; gap:10px; }
+    .section-header .btn-group { width:100%; justify-content:flex-start; }
+
+    /* Forms: single column */
+    .form-grid { grid-template-columns:1fr; }
+    .form-group.full { grid-column:1; }
+
+    /* Two-column master layout: stack */
+    div[style*="grid-template-columns:1fr 1fr"] {
+      display:flex!important; flex-direction:column; gap:16px;
+    }
+
+    /* Kanban table: make it horizontally scrollable with sticky first col */
+    .kanban-table-wrap { border-radius:8px; }
+    .kt { min-width:500px; }
+    .kt td.batch-cell { min-width:130px; font-size:12px; position:sticky; left:0; background:#fff; z-index:2; }
+    .kt td.totalpcs-cell { min-width:55px; font-size:11px; position:sticky; left:130px; background:#fff; z-index:2; }
+    .kt th { font-size:9px; padding:7px 8px; }
+    .kt td { font-size:11px; padding:7px 8px; }
+    .batch-note { font-size:10px; }
+
+    /* Tables: horizontal scroll */
+    .table-wrap { border-radius:8px; }
+    table { min-width:500px; }
+    thead th { font-size:10px; padding:8px 10px; }
+    tbody td { font-size:12px; padding:8px 10px; }
+
+    /* Cards: reduce padding */
+    .card { padding:14px; }
+    .card-header { font-size:13px; }
+
+    /* Buttons: slightly smaller */
+    .btn { padding:8px 14px; font-size:12px; }
+    .btn-sm { padding:5px 10px; font-size:11px; }
+    .btn-group { flex-wrap:wrap; gap:6px; }
+
+    /* Filter chips: smaller */
+    .filter-chip { padding:5px 11px; font-size:11px; }
+    .kanban-filters { gap:6px; }
+    .kanban-filters input[type=date] { width:130px!important; font-size:12px; }
+    .kanban-filters select { width:100%!important; font-size:12px; }
+
+    /* Labour cards: single column */
+    .labour-summary { grid-template-columns:1fr; }
+
+    /* Modal: full screen on mobile */
+    .modal-overlay { padding:0; align-items:flex-end; }
+    .modal { border-radius:16px 16px 0 0; max-height:92vh; max-width:100%; padding:20px 16px; }
+    .modal-lg { max-width:100%; }
+
+    /* Process step builder */
+    .process-step { padding:8px 10px; gap:6px; }
+    .ps-name { font-size:12px; }
+
+    /* Op chips: smaller */
+    .op-chip { padding:4px 10px; font-size:11px; }
+
+    /* Backup section: stack */
+    .card div[style*="grid-template-columns:1fr 1fr"] {
+      display:flex!important; flex-direction:column; gap:16px;
+    }
+
+    /* Seq display: wrap tightly */
+    .seq-display { gap:2px; }
+    .seq-pill { font-size:10px; padding:2px 6px; }
+    .arrow-sep { font-size:9px; }
+
+    /* Login box */
+    .login-box { padding:28px 20px; margin:16px; }
+    .login-logo { font-size:26px; }
+  }
+
+  /* Tablet adjustments */
+  @media (min-width:769px) {
+    .mobile-nav { display:none; }
+  }
+
+  @media (max-width:480px) {
+    .section-title { font-size:17px; }
+    .header { height:52px; }
+    .page { padding:14px 12px 72px 12px; }
+  }
+
+  /* Touch improvements */
+  button, .op-chip, .filter-chip { -webkit-tap-highlight-color:transparent; }
+  @media (max-width:768px) {
+    input, select, textarea { font-size:16px!important; } /* prevent iOS zoom */
+    .btn { min-height:42px; }
+    .btn-sm { min-height:34px; }
+  }
+
+  @media (max-width:768px) {
+    .master-grid { display:flex!important; flex-direction:column; }
+    .backup-grid { display:flex!important; flex-direction:column; }
+  }
 </style>
 </head>
 <body>
@@ -223,7 +353,7 @@
       <button class="nav-btn" data-page="master">⚙️ Master Data</button>
     </nav>
     <div class="header-right">
-      <span id="syncStatus" style="font-size:12px;font-weight:500;min-width:80px;text-align:right;"></span>
+      <span id="syncStatus" style="font-size:11px;font-weight:500;min-width:60px;text-align:right;white-space:nowrap;"></span>
       <button class="sync-btn" onclick="forceSyncAll()" title="Sync all data to Google Sheets now">🔄 Sync Now</button>
       <div class="user-pill" id="userPill">
         <img id="userAvatar" src="" alt="" onerror="this.style.display='none'">
@@ -231,6 +361,25 @@
       </div>
       <button class="signout-btn" onclick="doSignOut()">Sign Out</button>
     </div>
+  </div>
+
+  <!-- MOBILE BOTTOM TAB BAR -->
+  <div class="mobile-nav" id="mobileNav">
+    <button class="mobile-nav-btn active" data-page="kanban" onclick="mobileNav(this,'kanban')">
+      <span class="mnav-icon">📋</span>Kanban
+    </button>
+    <button class="mobile-nav-btn" data-page="log" onclick="mobileNav(this,'log')">
+      <span class="mnav-icon">➕</span>Log
+    </button>
+    <button class="mobile-nav-btn" data-page="labour" onclick="mobileNav(this,'labour')">
+      <span class="mnav-icon">👷</span>Labour
+    </button>
+    <button class="mobile-nav-btn" data-page="batches" onclick="mobileNav(this,'batches')">
+      <span class="mnav-icon">📦</span>Batches
+    </button>
+    <button class="mobile-nav-btn" data-page="master" onclick="mobileNav(this,'master')">
+      <span class="mnav-icon">⚙️</span>Master
+    </button>
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
@@ -345,7 +494,7 @@
     <div class="section-header">
       <div><div class="section-title">Master Data</div><div class="section-sub">Manage labour, products and backup</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+    <div class="master-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
       <div class="card">
         <div class="card-header">👷 Labour Master
           <button class="btn btn-primary btn-sm" onclick="openAddLabour()">+ Add</button>
@@ -369,7 +518,7 @@
     <!-- Backup & Restore -->
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header">🔒 Backup & Restore</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div class="backup-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
         <div>
           <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Download Full Backup</div>
           <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Downloads all data (Labour, Products, Batches, Logs) as a single Excel file with 4 sheets.</p>
@@ -567,25 +716,64 @@ function init() {
   waitForGIS(setupTokenClient);
 }
 
-function persist() { localStorage.setItem('stitchtrack_v4',JSON.stringify({labours:S.labours,products:S.products,batches:S.batches,logs:S.logs})); }
+function persist() {
+  localStorage.setItem('stitchtrack_v4',JSON.stringify({labours:S.labours,products:S.products,batches:S.batches,logs:S.logs}));
+}
 
-// Auto-sync: saves locally AND pushes all 4 tabs to Sheets on every change
-async function persistAndSync() {
-  persistAndSync();
-  if (S.accessToken && S.sheetId) {
-    updateSyncStatus('syncing');
-    try {
-      await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()]);
-      updateSyncStatus('ok');
-    } catch(e) { console.error('Sync error',e); updateSyncStatus('error'); }
+// ── SYNC STRATEGY ──────────────────────────────────────────────────────────
+// 1. persist()            → save to localStorage instantly (always fast)
+// 2. saveLogEntry(log)    → append single row to Logs sheet (fast, 1 row)
+// 3. syncSheet(type)      → rewrite only the specific sheet that changed
+// 4. forceSyncAll()       → rewrite all 4 sheets (manual button only)
+// No full-rewrite on every keystroke. UI never blocks.
+// ──────────────────────────────────────────────────────────────────────────
+
+let _syncQueue = [];   // queued sheet names to sync
+let _syncTimer = null; // debounce timer
+
+// Queue a sheet for syncing — debounced 800ms so rapid edits batch together
+function queueSync(sheetName) {
+  if (!S.accessToken || !S.sheetId) return;
+  if (!_syncQueue.includes(sheetName)) _syncQueue.push(sheetName);
+  if (_syncTimer) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(flushSyncQueue, 800);
+}
+
+async function flushSyncQueue() {
+  if (!_syncQueue.length || !S.accessToken || !S.sheetId) return;
+  const queue = [..._syncQueue];
+  _syncQueue = [];
+  updateSyncStatus('syncing');
+  try {
+    const tasks = queue.map(name => {
+      if (name === 'Logs')         return syncAllLogsToSheets();
+      if (name === 'LabourMaster') return syncLabourToSheets();
+      if (name === 'ProductMaster')return syncProductToSheets();
+      if (name === 'BatchMaster')  return syncBatchToSheets();
+      return Promise.resolve();
+    });
+    await Promise.all(tasks);
+    updateSyncStatus('ok');
+  } catch(e) {
+    console.error('Sync error', e);
+    updateSyncStatus('error');
   }
 }
 
+// Append a single new log row — much faster than rewriting the whole sheet
+async function appendLogRow(log) {
+  if (!S.accessToken || !S.sheetId) return;
+  await sheetsReq('POST','Logs!A:K',[[
+    log.id, log.date, log.batchNo, log.product, log.labour,
+    log.stage, log.operation, log.pieces, log.rejections, log.notes||'', log.time||''
+  ]]);
+}
+
 function updateSyncStatus(status) {
-  const el=document.getElementById('syncStatus');if(!el)return;
-  if(status==='syncing'){el.textContent='🔄 Syncing...';el.style.color='#d97706';}
-  else if(status==='ok'){el.textContent='✅ Synced';el.style.color='#16a34a';setTimeout(()=>{el.textContent='';},3000);}
-  else if(status==='error'){el.textContent='⚠️ Sync failed';el.style.color='#dc2626';}
+  const el = document.getElementById('syncStatus'); if (!el) return;
+  if (status==='syncing') { el.textContent='🔄 Syncing...'; el.style.color='#d97706'; }
+  else if (status==='ok') { el.textContent='✅ Synced'; el.style.color='#16a34a'; setTimeout(()=>{ el.textContent=''; }, 2500); }
+  else if (status==='error') { el.textContent='⚠️ Sync failed'; el.style.color='#dc2626'; }
 }
 
 function renderAll() {
@@ -598,12 +786,25 @@ function renderAll() {
 function setupNav() {
   document.querySelectorAll('.nav-btn').forEach(btn=>{
     btn.addEventListener('click',()=>{
-      document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.nav-btn,.mobile-nav-btn').forEach(b=>b.classList.remove('active'));
       document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
       btn.classList.add('active');
+      // Also sync mobile nav active state
+      document.querySelectorAll('.mobile-nav-btn').forEach(b=>{ if(b.dataset.page===btn.dataset.page) b.classList.add('active'); });
       document.getElementById('page-'+btn.dataset.page).classList.add('active');
     });
   });
+}
+
+function mobileNav(btn, page) {
+  document.querySelectorAll('.nav-btn,.mobile-nav-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  // Sync desktop nav
+  document.querySelectorAll('.nav-btn').forEach(b=>{ if(b.dataset.page===page) b.classList.add('active'); });
+  document.getElementById('page-'+page).classList.add('active');
+  // Scroll to top
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 function setupListeners() {
   document.getElementById('kanbanDate').addEventListener('change',renderKanban);
@@ -646,13 +847,11 @@ function setupTokenClient(){
       // Hide login, show app
       document.getElementById('loginScreen').classList.remove('show');
       document.getElementById('mainApp').style.display='block';
+      document.getElementById('mobileNav').style.display='flex';
       toast('Signed in ✓','success');
       renderAll();
-      // Push local data first, then pull from sheets to merge
-      updateSyncStatus('syncing');
-      Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()])
-        .then(()=>{ updateSyncStatus('ok'); syncAllFromSheets(); })
-        .catch(()=>{ updateSyncStatus('error'); syncAllFromSheets(); });
+      // First pull from Sheets; if empty push local data up
+      syncAllFromSheets();
     }
   });
 }
@@ -898,10 +1097,14 @@ function restoreFromBackup(event){
           pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''
         }));
       }
-      persistAndSync().then(()=>renderAll());
+      persist(); renderAll();
       toast('Data restored from backup ✓','success');
-      // Also push to Google Sheets
-      if(S.accessToken) { syncAllToSheets(); }
+      if(S.accessToken) {
+        updateSyncStatus('syncing');
+        Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()])
+          .then(()=>updateSyncStatus('ok'))
+          .catch(()=>updateSyncStatus('error'));
+      }
     }catch(err){
       console.error(err);
       toast('Restore failed — invalid file','error');
@@ -973,9 +1176,15 @@ function saveLog(){
   }
   const log={id:Date.now().toString(),date,batchNo:bNo,product:batch?batch.product:'',labour,stage:OP_STAGE[op]||'',operation:op,pieces:good,rejections:rej,notes,time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})};
   S.logs.push(log);
-  persistAndSync().then(()=>renderAll());clearLogForm();
+  persist();          // save locally — instant
+  renderAll();
+  clearLogForm();
   toast('Entry saved ✓','success');
-  if(S.accessToken&&S.sheetId) appendLogToSheets(log);
+  // Append just this one row to Sheets — fast, no full rewrite
+  if(S.accessToken && S.sheetId) {
+    appendLogRow(log).then(()=>updateSyncStatus('ok')).catch(()=>updateSyncStatus('error'));
+    updateSyncStatus('syncing');
+  }
 }
 
 function clearLogForm(){
@@ -997,7 +1206,7 @@ function renderTodayLog(){
     <td style="font-weight:700;color:var(--green)">${l.pieces}</td>
     <td style="color:var(--red)">${l.rejections>0?l.rejections:'—'}</td>
     <td style="color:var(--text2);max-width:140px;">${l.notes||'—'}</td>
-    <td style="white-space:nowrap;">
+    <td style="white-space:nowrap;min-width:80px;">
       <button class="btn btn-ghost btn-sm" onclick="openEditLog('${l.id}')">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="deleteLog('${l.id}')">✕</button>
     </td>
@@ -1038,16 +1247,16 @@ async function saveEditLog(){
     }
   }
   log.date=date;log.labour=labour;log.pieces=good;log.rejections=rej;log.notes=notes;
-  persistAndSync().then(()=>renderAll());closeModal('editLogModal');
+  persist(); renderAll(); closeModal('editLogModal');
   toast('Entry updated ✓','success');
-  if(S.accessToken&&S.sheetId) syncAllLogsToSheets();
+  queueSync('Logs');
 }
 
 function deleteLog(id){
   if(!confirm('Delete this entry?')) return;
   S.logs=S.logs.filter(l=>l.id!==id);
-  persistAndSync().then(()=>renderAll());toast('Deleted','info');
-  if(S.accessToken&&S.sheetId) syncAllLogsToSheets();
+  persist(); renderAll(); toast('Deleted','info');
+  queueSync('Logs');
 }
 
 // ===== LABOUR REPORT =====
@@ -1100,9 +1309,9 @@ function saveProduct(){
   if(!name){toast('Enter product name','error');return;}if(productSteps.length<1){toast('Add at least one operation','error');return;}
   if(orig){const p=S.products.find(x=>x.name===orig);if(p){p.name=name;p.processSteps=[...productSteps];S.batches.forEach(b=>{if(b.product===orig)b.product=name;});S.logs.forEach(l=>{if(l.product===orig)l.product=name;});}toast('Updated ✓','success');}
   else{if(S.products.find(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.products.push({name,processSteps:[...productSteps]});toast(`"${name}" added ✓`,'success');}
-  persistAndSync().then(()=>renderAll());closeModal('productModal');if(S.accessToken)syncProductToSheets();
+  persist();renderAll();closeModal('productModal');queueSync('ProductMaster');
 }
-function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);persistAndSync().then(()=>renderAll());toast('Deleted','info');}
+function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);persist();renderAll();toast('Deleted','info');queueSync('ProductMaster');}
 
 // ===== LABOUR MASTER =====
 function openAddLabour(){document.getElementById('labourModalTitle').textContent='Add Labour';document.getElementById('editLabourOrig').value='';document.getElementById('newLabourName').value='';openModal('labourModal');}
@@ -1112,9 +1321,9 @@ function saveLabour(){
   if(!name){toast('Enter name','error');return;}
   if(orig){const lb=S.labours.find(l=>l.name===orig);if(lb){S.logs.forEach(l=>{if(l.labour===orig)l.labour=name;});lb.name=name;}toast('Updated ✓','success');}
   else{if(S.labours.find(l=>l.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.labours.push({name,active:true});toast(`"${name}" added ✓`,'success');}
-  persistAndSync().then(()=>renderAll());closeModal('labourModal');if(S.accessToken)syncLabourToSheets();
+  persist();renderAll();closeModal('labourModal');queueSync('LabourMaster');
 }
-function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;persistAndSync().then(()=>{renderLabourMaster();renderDropdowns();});}}
+function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;persist();renderLabourMaster();renderDropdowns();queueSync('LabourMaster');}}
 function renderLabourMaster(){
   const tbody=document.getElementById('labourMasterTable');
   if(!S.labours.length){tbody.innerHTML=`<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3);">No labour added</td></tr>`;return;}
@@ -1147,8 +1356,8 @@ function saveBatch(){
   const p=S.products.find(x=>x.name===prod);
   if(!p||!p.processSteps||!p.processSteps.length){toast('Product has no process sequence','error');return;}
   S.batches.push({batchNo:bNo,product:prod,processSteps:[...p.processSteps],notes,created:new Date().toISOString().split('T')[0],archived:false});
-  persistAndSync().then(()=>renderAll());closeModal('batchModal');toast(`Batch #${bNo} created ✓`,'success');
-  if(S.accessToken)syncBatchToSheets();
+  persist();renderAll();closeModal('batchModal');toast(`Batch #${bNo} created ✓`,'success');
+  queueSync('BatchMaster');
 }
 function openEditBatch(bNo){
   const b=S.batches.find(x=>x.batchNo===bNo);if(!b)return;
@@ -1162,12 +1371,12 @@ function saveEditBatch(){
   const b=S.batches.find(x=>x.batchNo===bNo);if(!b)return;
   if(prod!==b.product){const p=S.products.find(x=>x.name===prod);if(p&&p.processSteps){b.product=prod;b.processSteps=[...p.processSteps];}}
   b.notes=notes;S.logs.forEach(l=>{if(l.batchNo===bNo)l.product=b.product;});
-  persistAndSync().then(()=>renderAll());closeModal('batchEditModal');toast('Batch updated ✓','success');
-  if(S.accessToken)syncBatchToSheets();
+  persist();renderAll();closeModal('batchEditModal');toast('Batch updated ✓','success');
+  queueSync('BatchMaster');
 }
-function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;persistAndSync().then(()=>renderAll());toast('Archived ✓','success');if(S.accessToken)syncBatchToSheets();}}
-function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;persistAndSync().then(()=>renderAll());toast('Reopened','info');if(S.accessToken)syncBatchToSheets();}}
-function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);persistAndSync().then(()=>renderAll());toast('Deleted','info');if(S.accessToken){syncBatchToSheets();syncAllLogsToSheets();}}
+function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;persist();renderAll();toast('Archived ✓','success');queueSync('BatchMaster');}}
+function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;persist();renderAll();toast('Reopened','info');queueSync('BatchMaster');}}
+function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);persist();renderAll();toast('Deleted','info');queueSync('BatchMaster');queueSync('Logs');}
 function renderBatches(){
   const tbody=document.getElementById('batchTable');
   if(!S.batches.length){tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--text3);">No batches created</td></tr>`;return;}
@@ -1234,17 +1443,12 @@ async function syncAllFromSheets(){
   if(pR?.values&&pR.values.length) S.products=pR.values.map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
   if(bR?.values&&bR.values.length) S.batches=bR.values.map(r=>({batchNo:r[0]||'',product:r[1]||'',processSteps:(r[2]||'').split('|').filter(Boolean),notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'}));
   if(logR?.values&&logR.values.length) S.logs=logR.values.map(r=>({id:String(r[0]||''),date:r[1]||'',batchNo:r[2]||'',product:r[3]||'',labour:r[4]||'',stage:r[5]||'',operation:r[6]||'',pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''}));
-  persistAndSync().then(()=>renderAll());toast('Synced ✓','success');
+  persist();renderAll();toast('Synced ✓','success');
 }
 
-async function syncAllToSheets(){
-  await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()]);
-  toast('All data synced to Sheets ✓','success');
-}
+// syncAllToSheets removed — use forceSyncAll()
 
-async function appendLogToSheets(log){
-  await sheetsReq('POST','Logs!A:K',[[log.id,log.date,log.batchNo,log.product,log.labour,log.stage,log.operation,"'"+log.pieces,"'"+log.rejections,log.notes||'',log.time||'']]);
-}
+// appendLogToSheets removed — replaced by appendLogRow()
 
 async function syncAllLogsToSheets(){
   const h=[['ID','Date','Batch No','Product','Labour','Stage','Operation','Good Pieces','Rejected Pieces','Notes','Time']];
@@ -1268,8 +1472,8 @@ async function forceSyncAll(){
   try {
     await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()]);
     updateSyncStatus('ok');
-    toast('All data synced to Google Sheets ✓','success');
-  } catch(e){ updateSyncStatus('error'); toast('Sync failed — check connection','error'); }
+    toast('All data synced ✓','success');
+  } catch(e){ updateSyncStatus('error'); toast('Sync failed','error'); }
 }
 
 // ===== MODAL =====
