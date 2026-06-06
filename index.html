@@ -997,7 +997,14 @@ function renderKanban(){
   Object.keys(ALL_OPS).forEach(stage=>{
     if(kFilter!=='all'&&stage!==kFilter) return;
     ALL_OPS[stage].forEach(op=>{
-      if(!seen.has(op)&&batches.some(b=>(b.processSteps||[]).includes(op))){allOps.push(op);seen.add(op);}
+      if(seen.has(op)) return;
+      // Include op if ANY batch OR any active group uses it
+      const inBatch = batches.some(b=>(b.processSteps||[]).includes(op));
+      const inGroup = (S.groups||[]).filter(g=>!(!showArch&&g.archived))
+                        .some(g=>(g.postCutSteps||[]).includes(op));
+      // Also include Cutting if any group's linked batches have it
+      const inGroupCut = op==='Cutting' && (S.groups||[]).some(g=>(g.batchNos||[]).some(bNo=>S.batches.find(b=>b.batchNo===bNo)));
+      if(inBatch||inGroup||inGroupCut){allOps.push(op);seen.add(op);}
     });
   });
   const groups=[];
@@ -1319,16 +1326,19 @@ function showFlowInfo(id,op,excludeId){
     if(idx<0) return;
     if(idx===0){
       const cutTotal=getGroupCutTotal(grp);
-      const d=getGroupStepStats(id,0,excludeId);
-      const consumed=d?d.consumed:0;
-      showVOk(`Group cut total: ${cutTotal} pcs. Already consumed: ${consumed}. Available: ${cutTotal-consumed} pcs.`);
+      if(cutTotal<=0){
+        showVWarn(`Group has no cut pieces yet — complete cutting for all linked batches first.`);
+        return;
+      }
+      const avail=getGroupAvailable(id,op,excludeId);
+      showVOk(`Group capacity: ${cutTotal} pcs available. Already consumed: ${cutTotal-(avail||0)}. Available: ${avail} pcs.`);
       return;
     }
     const prevStats=getGroupStepStats(id,idx-1,excludeId);
     const prevGood=prevStats?prevStats.good:0;
     if(prevGood<=0){showVWarn(`Cannot log "${op}" — "${steps[idx-1]}" has no good pieces yet.`);return;}
     const avail=getGroupAvailable(id,op,excludeId);
-    if(avail!==null&&avail<=0){showVWarn(`All ${prevGood} pieces already consumed here.`);return;}
+    if(avail!==null&&avail<=0){showVWarn(`All ${prevGood} pieces already consumed at "${op}".`);return;}
     showVOk(`"${steps[idx-1]}" passed ${prevGood} good pcs. Available: ${avail} pcs.`);
     return;
   }
@@ -1367,7 +1377,13 @@ function saveLog(){
   if(grp){
     const steps=grp.postCutSteps||[];
     const idx=steps.indexOf(op);
-    if(idx>0){
+    if(idx===0){
+      // First step: check against group cut total
+      const cutTotal=getGroupCutTotal(grp);
+      if(cutTotal<=0){toast('Complete cutting for all linked batches first','error');return;}
+      const avail=getGroupAvailable(bNo,op,null);
+      if(avail!==null&&good+rej>avail){showVWarn(`Total (${good}+${rej}=${good+rej}) exceeds available ${avail} pcs.`);toast(`Exceeds available ${avail} pcs`,'error');return;}
+    } else if(idx>0){
       const prevStats=getGroupStepStats(bNo,idx-1,null);
       if(!prevStats||prevStats.good<=0){toast(`"${steps[idx-1]}" has no good pieces yet`,'error');return;}
       const avail=getGroupAvailable(bNo,op,null);
@@ -2049,6 +2065,14 @@ function getGroupAvailable(groupId, op, excludeId=null) {
   const steps = group.postCutSteps || [];
   const idx = steps.indexOf(op);
   if (idx < 0) return null;
+  if (idx === 0) {
+    // First step: available = cutTotal - already consumed
+    const cutTotal = getGroupCutTotal(group);
+    if (cutTotal <= 0) return 0;
+    const logs = S.logs.filter(l => l.batchNo === groupId && l.operation === op && l.id !== excludeId);
+    const consumed = logs.reduce((a,l) => a+(parseInt(l.pieces)||0)+(parseInt(l.rejections)||0), 0);
+    return cutTotal - consumed;
+  }
   const stats = getGroupStepStats(groupId, idx, excludeId);
   return stats ? stats.remaining : null;
 }
