@@ -564,7 +564,7 @@
         <div class="form-group" style="justify-content:flex-end;"><label>&nbsp;</label>
           <button class="btn btn-primary" onclick="saveSheetConfig()">💾 Save & Sync</button></div>
       </div>
-      <p style="color:var(--text2);font-size:12px;margin-top:10px;">Tabs: <strong>Logs</strong>, <strong>LabourMaster</strong>, <strong>BatchMaster</strong>, <strong>ProductMaster</strong></p>
+      <p style="color:var(--text2);font-size:12px;margin-top:10px;">Required tabs: <strong>Logs</strong>, <strong>LabourMaster</strong>, <strong>BatchMaster</strong>, <strong>ProductMaster</strong>, <strong>GroupMaster</strong></p>
     </div>
   </div>
 </div>
@@ -831,7 +831,7 @@ async function flushSyncQueue() {
 // Append a single new log row — much faster than rewriting the whole sheet
 async function appendLogRow(log) {
   if (!S.accessToken || !S.sheetId) return;
-  await sheetsReq('POST','Logs!A:K',[[
+  await sheetAppend('Logs!A:K',[[
     log.id, log.date, log.batchNo, log.product, log.labour,
     log.stage, log.operation, log.pieces, log.rejections, log.notes||'', log.time||''
   ]]);
@@ -1662,22 +1662,80 @@ function hideV(){document.getElementById('vWarn').classList.remove('show');docum
 function saveSheetConfig(){const id=document.getElementById('sheetId').value.trim();if(!id){toast('Enter ID','error');return;}S.sheetId=id;toast('Saved','success');if(S.accessToken)syncAllFromSheets();}
 
 // ===== SHEETS API =====
-async function sheetsReq(method,range,values){
-  if(!S.accessToken||!S.sheetId)return null;
-  const base=`https://sheets.googleapis.com/v4/spreadsheets/${S.sheetId}/values/${encodeURIComponent(range)}`;
-  const url=method==='GET'?base:base+'?valueInputOption=USER_ENTERED';
-  try{const r=await fetch(url,{method,headers:{'Authorization':'Bearer '+S.accessToken,'Content-Type':'application/json'},body:method!=='GET'?JSON.stringify({values}):undefined});return await r.json();}
-  catch(e){console.error(e);return null;}
+
+// GET rows from a sheet range
+async function sheetGet(range) {
+  if (!S.accessToken || !S.sheetId) return null;
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${S.sheetId}/values/${encodeURIComponent(range)}`;
+    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + S.accessToken } });
+    if (r.status === 401) { handleTokenExpiry(); return null; }
+    if (!r.ok) { console.error('Sheets GET error', r.status, await r.text()); return null; }
+    return await r.json();
+  } catch(e) { console.error('sheetGet error', e); return null; }
+}
+
+// CLEAR then WRITE a full sheet (replaces PUT)
+async function sheetWrite(range, values) {
+  if (!S.accessToken || !S.sheetId) return false;
+  try {
+    const base = `https://sheets.googleapis.com/v4/spreadsheets/${S.sheetId}/values/${encodeURIComponent(range)}`;
+    // First clear the range
+    const clearR = await fetch(`${base}:clear`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + S.accessToken, 'Content-Type': 'application/json' }
+    });
+    if (clearR.status === 401) { handleTokenExpiry(); return false; }
+
+    // Then write new values
+    const r = await fetch(`${base}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + S.accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values })
+    });
+    if (r.status === 401) { handleTokenExpiry(); return false; }
+    if (!r.ok) {
+      const errText = await r.text();
+      console.error('Sheets WRITE error', r.status, errText);
+      toast('Sheets error: ' + r.status + ' — check console', 'error');
+      return false;
+    }
+    return true;
+  } catch(e) { console.error('sheetWrite error', e); return false; }
+}
+
+// APPEND a single row to a sheet
+async function sheetAppend(range, values) {
+  if (!S.accessToken || !S.sheetId) return false;
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${S.sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + S.accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values })
+    });
+    if (r.status === 401) { handleTokenExpiry(); return false; }
+    if (!r.ok) { console.error('Sheets APPEND error', r.status, await r.text()); return false; }
+    return true;
+  } catch(e) { console.error('sheetAppend error', e); return false; }
+}
+
+// Legacy alias (used by old code paths)
+async function sheetsReq(method, range, values) {
+  if (method === 'GET')  return sheetGet(range);
+  if (method === 'POST') return sheetAppend(range, values);
+  if (method === 'PUT')  return sheetWrite(range, values);
+  return null;
 }
 
 async function syncAllFromSheets(){
   toast('Syncing from Sheets...','info');
   const [lR,pR,bR,gR,logR]=await Promise.all([
-    sheetsReq('GET','LabourMaster!A2:B'),
-    sheetsReq('GET','ProductMaster!A2:B'),
-    sheetsReq('GET','BatchMaster!A2:G'),
-    sheetsReq('GET','GroupMaster!A2:G'),
-    sheetsReq('GET','Logs!A2:K')
+    sheetGet('LabourMaster!A2:B'),
+    sheetGet('ProductMaster!A2:B'),
+    sheetGet('BatchMaster!A2:G'),
+    sheetGet('GroupMaster!A2:H'),
+    sheetGet('Logs!A2:K')
   ]);
   if(lR?.values&&lR.values.length) S.labours=lR.values.map(r=>({name:r[0]||'',active:(r[1]||'TRUE')==='TRUE'}));
   if(pR?.values&&pR.values.length) S.products=pR.values.map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
@@ -1701,7 +1759,7 @@ async function syncAllFromSheets(){
 async function syncAllLogsToSheets(){
   const h=[['ID','Date','Batch No','Product','Labour','Stage','Operation','Good Pieces','Rejected Pieces','Notes','Time']];
   const rows=S.logs.map(l=>[l.id,l.date,l.batchNo,l.product,l.labour,l.stage,l.operation,l.pieces,l.rejections,l.notes||'',l.time||'']);
-  await sheetsReq('PUT','Logs!A1:K',[...h,...rows]);
+  await sheetWrite('Logs!A1:K',[...h,...rows]);
 }
 async function syncGroupToSheets(){
   if(!S.sheetId||!S.accessToken) return;
@@ -1710,17 +1768,17 @@ async function syncGroupToSheets(){
     const ratioStr=(g.batchNos||[]).map(bNo=>`${bNo}:${(g.ratios||{})[bNo]||1}`).join('|');
     return [g.groupId,g.name,(g.batchNos||[]).join('|'),ratioStr,(g.postCutSteps||[]).join('|'),g.notes||'',g.created,g.archived?'TRUE':'FALSE'];
   });
-  await sheetsReq('PUT','GroupMaster!A1:H',[...h,...rows]);
+  await sheetWrite('GroupMaster!A1:H',[...h,...rows]);
 }
 
 async function syncLabourToSheets(){
-  await sheetsReq('PUT','LabourMaster!A1:B',[['Name','Active'],...S.labours.map(l=>[l.name,l.active?'TRUE':'FALSE'])]);
+  await sheetWrite('LabourMaster!A1:B',[['Name','Active'],...S.labours.map(l=>[l.name,l.active?'TRUE':'FALSE'])]);
 }
 async function syncProductToSheets(){
-  await sheetsReq('PUT','ProductMaster!A1:B',[['Name','Process Steps (pipe-separated)'],...S.products.map(p=>[p.name,(p.processSteps||[]).join('|')])]);
+  await sheetWrite('ProductMaster!A1:B',[['Name','Process Steps (pipe-separated)'],...S.products.map(p=>[p.name,(p.processSteps||[]).join('|')])]);
 }
 async function syncBatchToSheets(){
-  await sheetsReq('PUT','BatchMaster!A1:F',[['Batch No','Product','Process Steps','Notes','Created Date','Archived'],...S.batches.map(b=>[b.batchNo,b.product,(b.processSteps||[]).join('|'),b.notes||'',b.created,b.archived?'TRUE':'FALSE'])]);
+  await sheetWrite('BatchMaster!A1:F',[['Batch No','Product','Process Steps','Notes','Created Date','Archived'],...S.batches.map(b=>[b.batchNo,b.product,(b.processSteps||[]).join('|'),b.notes||'',b.created,b.archived?'TRUE':'FALSE'])]);
 }
 
 // ===== BATCH GROUPS =====
@@ -2130,6 +2188,17 @@ function deleteGroup(groupId) {
   S.logs = S.logs.filter(l => l.batchNo !== groupId);
   persist(); renderAll(); toast('Deleted', 'info');
   queueSync('GroupMaster'); queueSync('Logs');
+}
+
+// ===== TOKEN MANAGEMENT =====
+function handleTokenExpiry() {
+  S.accessToken = '';
+  toast('Session expired — please sign in again', 'error');
+  updateSyncStatus('error');
+  // Auto re-prompt sign in
+  if (tokenClient) {
+    setTimeout(() => { tokenClient.requestAccessToken({prompt:''}); }, 1000);
+  }
 }
 
 // ===== FORCE SYNC =====
