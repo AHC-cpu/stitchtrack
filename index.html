@@ -769,16 +769,8 @@ let tokenClient = null;
 
 // ===== INIT =====
 function init() {
-  // Load localStorage as offline fallback only — real data comes from Sheets after sign-in
-  const saved = localStorage.getItem('stitchtrack_v4');
-  if (saved) {
-    try {
-      const d = JSON.parse(saved);
-      S.labours = d.labours||[]; S.products = d.products||[];
-      S.batches = d.batches||[]; S.groups   = d.groups||[];
-      S.logs    = d.logs||[];
-    } catch(e) {}
-  }
+  // Data ONLY comes from Google Sheets — localStorage stores NO data
+  // This ensures all users always see the same data from the same source
   S.sheetId = SHEET_ID;
   document.getElementById('sheetId').value = SHEET_ID;
 
@@ -793,7 +785,9 @@ function init() {
 }
 
 function persist() {
-  localStorage.setItem('stitchtrack_v4',JSON.stringify({labours:S.labours,products:S.products,batches:S.batches,groups:S.groups,logs:S.logs}));
+  // Data is stored in Google Sheets only — this is intentionally a no-op
+  // localStorage is NOT used for data to ensure all users see the same data
+  // Data lives in memory (S object) and is synced to/from Sheets
 }
 
 // ── SYNC STRATEGY ──────────────────────────────────────────────────────────
@@ -804,37 +798,28 @@ function persist() {
 // No full-rewrite on every keystroke. UI never blocks.
 // ──────────────────────────────────────────────────────────────────────────
 
-let _syncQueue = [];   // queued sheet names to sync
-let _syncTimer = null; // debounce timer
-
-// Queue a sheet for syncing — debounced 800ms so rapid edits batch together
-function queueSync(sheetName) {
+// ── BACKGROUND SYNC ─────────────────────────────────────────────────────
+// syncBg(fn): runs fn in background, never blocks UI
+// Usage: syncBg(() => syncLabourToSheets())
+function syncBg(fn) {
   if (!S.accessToken || !S.sheetId) return;
-  if (!_syncQueue.includes(sheetName)) _syncQueue.push(sheetName);
-  if (_syncTimer) clearTimeout(_syncTimer);
-  _syncTimer = setTimeout(flushSyncQueue, 800);
+  updateSyncStatus('syncing');
+  fn().then(() => updateSyncStatus('ok'))
+      .catch(e => { console.error('Sync error', e); updateSyncStatus('error'); });
 }
 
-async function flushSyncQueue() {
-  if (!_syncQueue.length || !S.accessToken || !S.sheetId) return;
-  const queue = [..._syncQueue];
-  _syncQueue = [];
+// Legacy queueSync — now instant, no debounce needed
+function queueSync(sheetName) {
+  if (!S.accessToken || !S.sheetId) return;
   updateSyncStatus('syncing');
-  try {
-    const tasks = queue.map(name => {
-      if (name === 'Logs')         return syncAllLogsToSheets();
-      if (name === 'LabourMaster') return syncLabourToSheets();
-      if (name === 'ProductMaster')return syncProductToSheets();
-      if (name === 'BatchMaster')  return syncBatchToSheets();
-      if (name === 'GroupMaster')  return syncGroupToSheets();
-      return Promise.resolve();
-    });
-    await Promise.all(tasks);
-    updateSyncStatus('ok');
-  } catch(e) {
-    console.error('Sync error', e);
-    updateSyncStatus('error');
-  }
+  const fn = sheetName === 'Logs'          ? syncAllLogsToSheets
+           : sheetName === 'LabourMaster'  ? syncLabourToSheets
+           : sheetName === 'ProductMaster' ? syncProductToSheets
+           : sheetName === 'BatchMaster'   ? syncBatchToSheets
+           : sheetName === 'GroupMaster'   ? syncGroupToSheets
+           : null;
+  if (fn) fn().then(() => updateSyncStatus('ok'))
+              .catch(e => { console.error(e); updateSyncStatus('error'); });
 }
 
 // Append a single new log row — much faster than rewriting the whole sheet
@@ -1301,14 +1286,9 @@ function restoreFromBackup(event){
           pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''
         }));
       }
-      persist(); renderAll();
+      renderAll();
       toast('Data restored from backup ✓','success');
-      if(S.accessToken) {
-        updateSyncStatus('syncing');
-        Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncAllLogsToSheets()])
-          .then(()=>updateSyncStatus('ok'))
-          .catch(()=>updateSyncStatus('error'));
-      }
+      if(S.accessToken) syncBg(()=>Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncGroupToSheets(),syncAllLogsToSheets()]));
     }catch(err){
       console.error(err);
       toast('Restore failed — invalid file','error');
@@ -1433,14 +1413,13 @@ function saveLog(){
   }
   const log={id:Date.now().toString(),date,batchNo:bNo,product:grp?grp.name:(batch?batch.product:''),labour,stage:OP_STAGE[op]||'',operation:op,pieces:good,rejections:rej,notes,time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})};
   S.logs.push(log);
-  persist();          // save locally — instant
-  renderAll();
+  renderAll();        // instant — data already in memory
   clearLogForm();
   toast('Entry saved ✓','success');
-  // Append just this one row to Sheets — fast, no full rewrite
+  // Append just this one row to Sheets — fast single row, no full rewrite
   if(S.accessToken && S.sheetId) {
-    appendLogRow(log).then(()=>updateSyncStatus('ok')).catch(()=>updateSyncStatus('error'));
     updateSyncStatus('syncing');
+    appendLogRow(log).then(()=>updateSyncStatus('ok')).catch(()=>updateSyncStatus('error'));
   }
 }
 
@@ -1504,7 +1483,7 @@ async function saveEditLog(){
     }
   }
   log.date=date;log.labour=labour;log.pieces=good;log.rejections=rej;log.notes=notes;
-  persist(); renderAll(); closeModal('editLogModal');
+  renderAll(); closeModal('editLogModal');
   toast('Entry updated ✓','success');
   queueSync('Logs');
 }
@@ -1512,7 +1491,7 @@ async function saveEditLog(){
 function deleteLog(id){
   if(!confirm('Delete this entry?')) return;
   S.logs=S.logs.filter(l=>l.id!==id);
-  persist(); renderAll(); toast('Deleted','info');
+  renderAll(); toast('Deleted','info');
   queueSync('Logs');
 }
 
@@ -1566,9 +1545,9 @@ function saveProduct(){
   if(!name){toast('Enter product name','error');return;}if(productSteps.length<1){toast('Add at least one operation','error');return;}
   if(orig){const p=S.products.find(x=>x.name===orig);if(p){p.name=name;p.processSteps=[...productSteps];S.batches.forEach(b=>{if(b.product===orig)b.product=name;});S.logs.forEach(l=>{if(l.product===orig)l.product=name;});}toast('Updated ✓','success');}
   else{if(S.products.find(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.products.push({name,processSteps:[...productSteps]});toast(`"${name}" added ✓`,'success');}
-  persist();renderAll();closeModal('productModal');queueSync('ProductMaster');
+  renderAll(); closeModal('productModal'); queueSync('ProductMaster');
 }
-function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);persist();renderAll();toast('Deleted','info');queueSync('ProductMaster');}
+function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);renderAll();toast('Deleted','info');queueSync('ProductMaster');}
 
 // ===== LABOUR MASTER =====
 function openAddLabour(){document.getElementById('labourModalTitle').textContent='Add Labour';document.getElementById('editLabourOrig').value='';document.getElementById('newLabourName').value='';openModal('labourModal');}
@@ -1578,9 +1557,9 @@ function saveLabour(){
   if(!name){toast('Enter name','error');return;}
   if(orig){const lb=S.labours.find(l=>l.name===orig);if(lb){S.logs.forEach(l=>{if(l.labour===orig)l.labour=name;});lb.name=name;}toast('Updated ✓','success');}
   else{if(S.labours.find(l=>l.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.labours.push({name,active:true});toast(`"${name}" added ✓`,'success');}
-  persist();renderAll();closeModal('labourModal');queueSync('LabourMaster');
+  renderAll(); closeModal('labourModal'); toast(orig?'Updated ✓':'Added ✓','success'); queueSync('LabourMaster');
 }
-function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;persist();renderLabourMaster();renderDropdowns();queueSync('LabourMaster');}}
+function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;renderLabourMaster();renderDropdowns();queueSync('LabourMaster');}}
 function renderLabourMaster(){
   const tbody=document.getElementById('labourMasterTable');
   if(!S.labours.length){tbody.innerHTML=`<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3);">No labour added</td></tr>`;return;}
@@ -1613,7 +1592,7 @@ function saveBatch(){
   const p=S.products.find(x=>x.name===prod);
   if(!p||!p.processSteps||!p.processSteps.length){toast('Product has no process sequence','error');return;}
   S.batches.push({batchNo:bNo,product:prod,processSteps:[...p.processSteps],notes,created:new Date().toISOString().split('T')[0],archived:false});
-  persist();renderAll();closeModal('batchModal');toast(`Batch #${bNo} created ✓`,'success');
+  renderAll(); closeModal('batchModal'); toast(`Batch #${bNo} created ✓`,'success');
   queueSync('BatchMaster');
 }
 function openEditBatch(bNo){
@@ -1628,12 +1607,12 @@ function saveEditBatch(){
   const b=S.batches.find(x=>x.batchNo===bNo);if(!b)return;
   if(prod!==b.product){const p=S.products.find(x=>x.name===prod);if(p&&p.processSteps){b.product=prod;b.processSteps=[...p.processSteps];}}
   b.notes=notes;S.logs.forEach(l=>{if(l.batchNo===bNo)l.product=b.product;});
-  persist();renderAll();closeModal('batchEditModal');toast('Batch updated ✓','success');
+  renderAll(); closeModal('batchEditModal'); toast('Batch updated ✓','success');
   queueSync('BatchMaster');
 }
-function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;persist();renderAll();toast('Archived ✓','success');queueSync('BatchMaster');}}
-function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;persist();renderAll();toast('Reopened','info');queueSync('BatchMaster');}}
-function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);persist();renderAll();toast('Deleted','info');queueSync('BatchMaster');queueSync('Logs');}
+function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;renderAll();toast('Archived ✓','success');queueSync('BatchMaster');}}
+function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;renderAll();toast('Reopened','info');queueSync('BatchMaster');}}
+function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);renderAll();toast('Deleted','info');queueSync('BatchMaster');queueSync('Logs');}
 function renderBatches(){
   const tbody=document.getElementById('batchTable');
   if(!S.batches.length){tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--text3);">No batches created</td></tr>`;return;}
@@ -1761,27 +1740,52 @@ async function sheetsReq(method, range, values) {
 }
 
 async function syncAllFromSheets(){
-  toast('Syncing from Sheets...','info');
-  const [lR,pR,bR,gR,logR]=await Promise.all([
-    sheetGet('LabourMaster!A2:B'),
-    sheetGet('ProductMaster!A2:B'),
-    sheetGet('BatchMaster!A2:G'),
-    sheetGet('GroupMaster!A2:H'),
-    sheetGet('Logs!A2:K')
-  ]);
-  if(lR?.values&&lR.values.length) S.labours=lR.values.map(r=>({name:r[0]||'',active:(r[1]||'TRUE')==='TRUE'}));
-  if(pR?.values&&pR.values.length) S.products=pR.values.map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
-  if(bR?.values&&bR.values.length) S.batches=bR.values.map(r=>({batchNo:r[0]||'',product:r[1]||'',processSteps:(r[2]||'').split('|').filter(Boolean),notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'}));
-  if(gR?.values&&gR.values.length) S.groups=gR.values.map(r=>{
-    const batchNos=(r[2]||'').split('|').filter(Boolean);
-    // r[3] = ratios like "B-001:1|B-002:2", r[4] = postCutSteps
-    const ratioStr=r[3]||'';
-    const ratios={};
-    ratioStr.split('|').filter(Boolean).forEach(pair=>{const[bNo,ratio]=pair.split(':');if(bNo)ratios[bNo]=parseInt(ratio)||1;});
-    return {groupId:r[0]||'',name:r[1]||'',batchNos,ratios,postCutSteps:(r[4]||'').split('|').filter(Boolean),notes:r[5]||'',created:r[6]||'',archived:(r[7]||'')==='TRUE'};
-  });
-  if(logR?.values&&logR.values.length) S.logs=logR.values.map(r=>({id:String(r[0]||''),date:r[1]||'',batchNo:r[2]||'',product:r[3]||'',labour:r[4]||'',stage:r[5]||'',operation:r[6]||'',pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,notes:r[9]||'',time:r[10]||''}));
-  persist();renderAll();toast('Synced ✓','success');
+  if (!S.accessToken || !S.sheetId) return;
+  updateSyncStatus('syncing');
+  try {
+    const [lR,pR,bR,gR,logR] = await Promise.all([
+      sheetGet('LabourMaster!A2:B'),
+      sheetGet('ProductMaster!A2:B'),
+      sheetGet('BatchMaster!A2:F'),
+      sheetGet('GroupMaster!A2:H'),
+      sheetGet('Logs!A2:K')
+    ]);
+
+    // WIPE memory — reload everything fresh from Sheets
+    S.labours  = (lR?.values||[]).map(r=>({name:r[0]||'',active:(r[1]||'TRUE')==='TRUE'}));
+    S.products = (pR?.values||[]).map(r=>({name:r[0]||'',processSteps:(r[1]||'').split('|').filter(Boolean)}));
+    S.batches  = (bR?.values||[]).map(r=>({
+      batchNo:r[0]||'',product:r[1]||'',
+      processSteps:(r[2]||'').split('|').filter(Boolean),
+      notes:r[3]||'',created:r[4]||'',archived:(r[5]||'')==='TRUE'
+    }));
+    S.groups = (gR?.values||[]).map(r=>{
+      const batchNos=(r[2]||'').split('|').filter(Boolean);
+      const ratios={};
+      (r[3]||'').split('|').filter(Boolean).forEach(pair=>{
+        const[bNo,ratio]=pair.split(':'); if(bNo) ratios[bNo]=parseInt(ratio)||1;
+      });
+      return {
+        groupId:r[0]||'',name:r[1]||'',batchNos,ratios,
+        postCutSteps:(r[4]||'').split('|').filter(Boolean),
+        notes:r[5]||'',created:r[6]||'',archived:(r[7]||'')==='TRUE'
+      };
+    });
+    S.logs = (logR?.values||[]).map(r=>({
+      id:String(r[0]||''),date:r[1]||'',batchNo:r[2]||'',product:r[3]||'',
+      labour:r[4]||'',stage:r[5]||'',operation:r[6]||'',
+      pieces:parseInt(r[7])||0,rejections:parseInt(r[8])||0,
+      notes:r[9]||'',time:r[10]||''
+    }));
+
+    renderAll();
+    updateSyncStatus('ok');
+    toast('Synced ✓','success');
+  } catch(e) {
+    console.error('syncAllFromSheets error', e);
+    updateSyncStatus('error');
+    toast('Sync failed — check connection','error');
+  }
 }
 
 // syncAllToSheets removed — use forceSyncAll()
@@ -2095,7 +2099,7 @@ function saveGroup() {
     });
     toast(`Group ${groupId} created ✓`, 'success');
   }
-  persist(); renderAll(); closeModal('groupModal');
+  renderAll(); closeModal('groupModal');
   queueSync('GroupMaster');
 }
 
@@ -2207,18 +2211,18 @@ function renderGroups() {
 function completeGroup(groupId) {
   if (!confirm(`Archive group ${groupId}?`)) return;
   const g = S.groups.find(x => x.groupId === groupId);
-  if (g) { g.archived = true; persist(); renderAll(); toast('Group archived ✓', 'success'); queueSync('GroupMaster'); }
+  if (g) { g.archived = true; renderAll(); toast('Group archived ✓', 'success'); queueSync('GroupMaster'); }
 }
 function reopenGroup(groupId) {
   if (!confirm(`Reopen group ${groupId}?`)) return;
   const g = S.groups.find(x => x.groupId === groupId);
-  if (g) { g.archived = false; persist(); renderAll(); toast('Reopened', 'info'); queueSync('GroupMaster'); }
+  if (g) { g.archived = false; renderAll(); toast('Reopened', 'info'); queueSync('GroupMaster'); }
 }
 function deleteGroup(groupId) {
   if (!confirm(`Delete group ${groupId} and all its logs?`)) return;
   S.groups = S.groups.filter(g => g.groupId !== groupId);
   S.logs = S.logs.filter(l => l.batchNo !== groupId);
-  persist(); renderAll(); toast('Deleted', 'info');
+  renderAll(); toast('Deleted', 'info');
   queueSync('GroupMaster'); queueSync('Logs');
 }
 
@@ -2236,12 +2240,8 @@ function handleTokenExpiry() {
 // ===== FORCE SYNC =====
 async function forceSyncAll(){
   if(!S.accessToken){toast('Please sign in first','error');return;}
-  updateSyncStatus('syncing');
-  try {
-    await Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncGroupToSheets(),syncAllLogsToSheets()]);
-    updateSyncStatus('ok');
-    toast('All data synced ✓','success');
-  } catch(e){ updateSyncStatus('error'); toast('Sync failed','error'); }
+  syncBg(()=>Promise.all([syncLabourToSheets(),syncProductToSheets(),syncBatchToSheets(),syncGroupToSheets(),syncAllLogsToSheets()]));
+  toast('Syncing all data...','info');
 }
 
 // ===== MODAL =====
