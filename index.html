@@ -882,7 +882,7 @@ function startAutoRefresh() {
     if (S.accessToken && S.sheetId && !document.hidden) {
       syncAllFromSheets();
     }
-  }, 60000); // every 60 seconds
+  }, 10000); // every 10 seconds
 }
 function stopAutoRefresh() {
   if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
@@ -1419,7 +1419,9 @@ function saveLog(){
   // Append just this one row to Sheets — fast single row, no full rewrite
   if(S.accessToken && S.sheetId) {
     updateSyncStatus('syncing');
-    appendLogRow(log).then(()=>updateSyncStatus('ok')).catch(()=>updateSyncStatus('error'));
+    appendLogRow(log)
+      .then(()=>{ updateSyncStatus('ok'); })
+      .catch(()=>updateSyncStatus('error'));
   }
 }
 
@@ -1485,14 +1487,14 @@ async function saveEditLog(){
   log.date=date;log.labour=labour;log.pieces=good;log.rejections=rej;log.notes=notes;
   renderAll(); closeModal('editLogModal');
   toast('Entry updated ✓','success');
-  queueSync('Logs');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncAllLogsToSheets());
 }
 
 function deleteLog(id){
   if(!confirm('Delete this entry?')) return;
   S.logs=S.logs.filter(l=>l.id!==id);
   renderAll(); toast('Deleted','info');
-  queueSync('Logs');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncAllLogsToSheets());
 }
 
 // ===== LABOUR REPORT =====
@@ -1545,9 +1547,10 @@ function saveProduct(){
   if(!name){toast('Enter product name','error');return;}if(productSteps.length<1){toast('Add at least one operation','error');return;}
   if(orig){const p=S.products.find(x=>x.name===orig);if(p){p.name=name;p.processSteps=[...productSteps];S.batches.forEach(b=>{if(b.product===orig)b.product=name;});S.logs.forEach(l=>{if(l.product===orig)l.product=name;});}toast('Updated ✓','success');}
   else{if(S.products.find(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.products.push({name,processSteps:[...productSteps]});toast(`"${name}" added ✓`,'success');}
-  renderAll(); closeModal('productModal'); queueSync('ProductMaster');
+  renderAll(); closeModal('productModal');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncProductToSheets());
 }
-function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);renderAll();toast('Deleted','info');queueSync('ProductMaster');}
+function deleteProduct(name){if(!confirm(`Delete "${name}"?`))return;S.products=S.products.filter(p=>p.name!==name);renderAll();toast('Deleted','info');if(S.accessToken&&S.sheetId)syncBg(()=>syncProductToSheets());}
 
 // ===== LABOUR MASTER =====
 function openAddLabour(){document.getElementById('labourModalTitle').textContent='Add Labour';document.getElementById('editLabourOrig').value='';document.getElementById('newLabourName').value='';openModal('labourModal');}
@@ -1557,9 +1560,10 @@ function saveLabour(){
   if(!name){toast('Enter name','error');return;}
   if(orig){const lb=S.labours.find(l=>l.name===orig);if(lb){S.logs.forEach(l=>{if(l.labour===orig)l.labour=name;});lb.name=name;}toast('Updated ✓','success');}
   else{if(S.labours.find(l=>l.name.toLowerCase()===name.toLowerCase())){toast('Already exists','error');return;}S.labours.push({name,active:true});toast(`"${name}" added ✓`,'success');}
-  renderAll(); closeModal('labourModal'); toast(orig?'Updated ✓':'Added ✓','success'); queueSync('LabourMaster');
+  renderAll(); closeModal('labourModal'); toast(orig?'Updated ✓':'Added ✓','success');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncLabourToSheets());
 }
-function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;renderLabourMaster();renderDropdowns();queueSync('LabourMaster');}}
+function toggleLabour(name){const lb=S.labours.find(l=>l.name===name);if(lb){lb.active=!lb.active;renderLabourMaster();renderDropdowns();if(S.accessToken&&S.sheetId)syncBg(()=>syncLabourToSheets());}}
 function renderLabourMaster(){
   const tbody=document.getElementById('labourMasterTable');
   if(!S.labours.length){tbody.innerHTML=`<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3);">No labour added</td></tr>`;return;}
@@ -1593,7 +1597,7 @@ function saveBatch(){
   if(!p||!p.processSteps||!p.processSteps.length){toast('Product has no process sequence','error');return;}
   S.batches.push({batchNo:bNo,product:prod,processSteps:[...p.processSteps],notes,created:new Date().toISOString().split('T')[0],archived:false});
   renderAll(); closeModal('batchModal'); toast(`Batch #${bNo} created ✓`,'success');
-  queueSync('BatchMaster');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncBatchToSheets());
 }
 function openEditBatch(bNo){
   const b=S.batches.find(x=>x.batchNo===bNo);if(!b)return;
@@ -1608,11 +1612,11 @@ function saveEditBatch(){
   if(prod!==b.product){const p=S.products.find(x=>x.name===prod);if(p&&p.processSteps){b.product=prod;b.processSteps=[...p.processSteps];}}
   b.notes=notes;S.logs.forEach(l=>{if(l.batchNo===bNo)l.product=b.product;});
   renderAll(); closeModal('batchEditModal'); toast('Batch updated ✓','success');
-  queueSync('BatchMaster');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncBatchToSheets());
 }
-function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;renderAll();toast('Archived ✓','success');queueSync('BatchMaster');}}
-function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;renderAll();toast('Reopened','info');queueSync('BatchMaster');}}
-function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);renderAll();toast('Deleted','info');queueSync('BatchMaster');queueSync('Logs');}
+function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;renderAll();toast('Archived ✓','success');if(S.accessToken&&S.sheetId)syncBg(()=>syncBatchToSheets());}}
+function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;renderAll();toast('Reopened','info');if(S.accessToken&&S.sheetId)syncBg(()=>syncBatchToSheets());}}
+function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);renderAll();toast('Deleted','info');if(S.accessToken&&S.sheetId)syncBg(()=>Promise.all([syncBatchToSheets(),syncAllLogsToSheets()]));}
 function renderBatches(){
   const tbody=document.getElementById('batchTable');
   if(!S.batches.length){tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--text3);">No batches created</td></tr>`;return;}
@@ -1681,6 +1685,7 @@ async function sheetGet(range) {
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${S.sheetId}/values/${encodeURIComponent(range)}`;
     const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + S.accessToken } });
     if (r.status === 401) { handleTokenExpiry(); return null; }
+    if (r.status === 403) { handle403Error(); return null; }
     if (!r.ok) { console.error('Sheets GET error', r.status, await r.text()); return null; }
     return await r.json();
   } catch(e) { console.error('sheetGet error', e); return null; }
@@ -1697,6 +1702,7 @@ async function sheetWrite(range, values) {
       headers: { 'Authorization': 'Bearer ' + S.accessToken, 'Content-Type': 'application/json' }
     });
     if (clearR.status === 401) { handleTokenExpiry(); return false; }
+    if (clearR.status === 403) { handle403Error(); return false; }
 
     // Then write new values
     const r = await fetch(`${base}?valueInputOption=USER_ENTERED`, {
@@ -1705,6 +1711,7 @@ async function sheetWrite(range, values) {
       body: JSON.stringify({ values })
     });
     if (r.status === 401) { handleTokenExpiry(); return false; }
+    if (r.status === 403) { handle403Error(); return false; }
     if (!r.ok) {
       const errText = await r.text();
       console.error('Sheets WRITE error', r.status, errText);
@@ -1726,6 +1733,7 @@ async function sheetAppend(range, values) {
       body: JSON.stringify({ values })
     });
     if (r.status === 401) { handleTokenExpiry(); return false; }
+    if (r.status === 403) { handle403Error(); return false; }
     if (!r.ok) { console.error('Sheets APPEND error', r.status, await r.text()); return false; }
     return true;
   } catch(e) { console.error('sheetAppend error', e); return false; }
@@ -2100,7 +2108,7 @@ function saveGroup() {
     toast(`Group ${groupId} created ✓`, 'success');
   }
   renderAll(); closeModal('groupModal');
-  queueSync('GroupMaster');
+  if(S.accessToken&&S.sheetId) syncBg(()=>syncGroupToSheets());
 }
 
 // Get capacity for each batch in group: good ÷ ratio
@@ -2211,19 +2219,19 @@ function renderGroups() {
 function completeGroup(groupId) {
   if (!confirm(`Archive group ${groupId}?`)) return;
   const g = S.groups.find(x => x.groupId === groupId);
-  if (g) { g.archived = true; renderAll(); toast('Group archived ✓', 'success'); queueSync('GroupMaster'); }
+  if (g) { g.archived = true; renderAll(); toast('Group archived ✓', 'success'); if(S.accessToken&&S.sheetId)syncBg(()=>syncGroupToSheets()); }
 }
 function reopenGroup(groupId) {
   if (!confirm(`Reopen group ${groupId}?`)) return;
   const g = S.groups.find(x => x.groupId === groupId);
-  if (g) { g.archived = false; renderAll(); toast('Reopened', 'info'); queueSync('GroupMaster'); }
+  if (g) { g.archived = false; renderAll(); toast('Reopened', 'info'); if(S.accessToken&&S.sheetId)syncBg(()=>syncGroupToSheets()); }
 }
 function deleteGroup(groupId) {
   if (!confirm(`Delete group ${groupId} and all its logs?`)) return;
   S.groups = S.groups.filter(g => g.groupId !== groupId);
   S.logs = S.logs.filter(l => l.batchNo !== groupId);
   renderAll(); toast('Deleted', 'info');
-  queueSync('GroupMaster'); queueSync('Logs');
+  if(S.accessToken&&S.sheetId) syncBg(()=>Promise.all([syncGroupToSheets(),syncAllLogsToSheets()]));
 }
 
 // ===== TOKEN MANAGEMENT =====
@@ -2231,12 +2239,107 @@ function handleTokenExpiry() {
   S.accessToken = '';
   toast('Session expired — please sign in again', 'error');
   updateSyncStatus('error');
-  // Auto re-prompt sign in
   if (tokenClient) {
     setTimeout(() => { tokenClient.requestAccessToken({prompt:''}); }, 1000);
   }
 }
 
+function handle403Error() {
+  updateSyncStatus('error');
+  // Show a clear banner with exact steps to fix
+  const existing = document.getElementById('error403Banner');
+  if (existing) return; // already showing
+  const banner = document.createElement('div');
+  banner.id = 'error403Banner';
+  banner.style.cssText = `
+    position:fixed;top:70px;left:50%;transform:translateX(-50%);
+    background:#fff;border:2px solid #dc2626;border-radius:14px;
+    padding:24px 28px;max-width:520px;width:90%;z-index:9999;
+    box-shadow:0 8px 30px rgba(0,0,0,0.15);font-family:'DM Sans',sans-serif;
+  `;
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <span style="font-size:24px;">🔒</span>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:#dc2626;">
+        Access Denied (403)
+      </div>
+    </div>
+    <p style="font-size:13px;color:#475569;margin-bottom:14px;">
+      Your account doesn't have permission to access the StitchTrack data. Ask your admin to do these 2 steps:
+    </p>
+    <div style="background:#fef2f2;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:12px;color:#991b1b;margin-bottom:6px;">STEP 1 — Share the Google Sheet</div>
+      <div style="font-size:12px;color:#7f1d1d;">Open Google Sheet → Share → Add your Gmail → Set as Editor</div>
+    </div>
+    <div style="background:#fef2f2;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+      <div style="font-weight:700;font-size:12px;color:#991b1b;margin-bottom:6px;">STEP 2 — Add you as Test User</div>
+      <div style="font-size:12px;color:#7f1d1d;">Google Cloud Console → OAuth Consent Screen → Test Users → Add your Gmail</div>
+    </div>
+    <button onclick="document.getElementById('error403Banner').remove();doSignOut();"
+      style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:9px 18px;
+             font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;width:100%;">
+      Sign Out and Try Again
+    </button>
+  `;
+  document.body.appendChild(banner);
+}
+
+
+// Pull only one sheet tab and update memory — fast refresh (single GET)
+async function quickRefresh(sheetName) {
+  if (!S.accessToken || !S.sheetId) return;
+  try {
+    if (sheetName === 'Logs') {
+      const r = await sheetGet('Logs!A2:K');
+      if (r?.values) {
+        S.logs = r.values.map(row=>({
+          id:String(row[0]||''),date:row[1]||'',batchNo:row[2]||'',product:row[3]||'',
+          labour:row[4]||'',stage:row[5]||'',operation:row[6]||'',
+          pieces:parseInt(row[7])||0,rejections:parseInt(row[8])||0,
+          notes:row[9]||'',time:row[10]||''
+        }));
+        renderKanban(); renderTodayLog(); renderLabourReport();
+      }
+    } else if (sheetName === 'BatchMaster') {
+      const r = await sheetGet('BatchMaster!A2:F');
+      if (r?.values) {
+        S.batches = r.values.map(row=>({
+          batchNo:row[0]||'',product:row[1]||'',
+          processSteps:(row[2]||'').split('|').filter(Boolean),
+          notes:row[3]||'',created:row[4]||'',archived:(row[5]||'')==='TRUE'
+        }));
+        renderKanban(); renderBatches(); renderDropdowns();
+      }
+    } else if (sheetName === 'LabourMaster') {
+      const r = await sheetGet('LabourMaster!A2:B');
+      if (r?.values) {
+        S.labours = r.values.map(row=>({name:row[0]||'',active:(row[1]||'TRUE')==='TRUE'}));
+        renderLabourMaster(); renderDropdowns();
+      }
+    } else if (sheetName === 'ProductMaster') {
+      const r = await sheetGet('ProductMaster!A2:B');
+      if (r?.values) {
+        S.products = r.values.map(row=>({name:row[0]||'',processSteps:(row[1]||'').split('|').filter(Boolean)}));
+        renderProductMaster(); renderDropdowns();
+      }
+    } else if (sheetName === 'GroupMaster') {
+      const r = await sheetGet('GroupMaster!A2:H');
+      if (r?.values) {
+        S.groups = r.values.map(row=>{
+          const batchNos=(row[2]||'').split('|').filter(Boolean);
+          const ratios={};
+          (row[3]||'').split('|').filter(Boolean).forEach(pair=>{
+            const[bNo,ratio]=pair.split(':'); if(bNo) ratios[bNo]=parseInt(ratio)||1;
+          });
+          return {groupId:row[0]||'',name:row[1]||'',batchNos,ratios,
+            postCutSteps:(row[4]||'').split('|').filter(Boolean),
+            notes:row[5]||'',created:row[6]||'',archived:(row[7]||'')==='TRUE'};
+        });
+        renderKanban(); renderGroups();
+      }
+    }
+  } catch(e) { console.error('quickRefresh error', e); }
+}
 // ===== FORCE SYNC =====
 async function forceSyncAll(){
   if(!S.accessToken){toast('Please sign in first','error');return;}
