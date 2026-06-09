@@ -769,16 +769,25 @@ let tokenClient = null;
 
 // ===== INIT =====
 function init() {
+  // Load localStorage as offline fallback only — real data comes from Sheets after sign-in
   const saved = localStorage.getItem('stitchtrack_v4');
-  if (saved) { try { const d=JSON.parse(saved); S.labours=d.labours||[]; S.products=d.products||[]; S.batches=d.batches||[]; S.groups=d.groups||[]; S.logs=d.logs||[]; } catch(e){} }
+  if (saved) {
+    try {
+      const d = JSON.parse(saved);
+      S.labours = d.labours||[]; S.products = d.products||[];
+      S.batches = d.batches||[]; S.groups   = d.groups||[];
+      S.logs    = d.logs||[];
+    } catch(e) {}
+  }
   S.sheetId = SHEET_ID;
   document.getElementById('sheetId').value = SHEET_ID;
 
   const today = new Date().toISOString().split('T')[0];
-  ['logDate','kanbanDate','labourFrom','labourTo'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=today;});
+  ['logDate','kanbanDate','labourFrom','labourTo'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value=today;
+  });
 
   setupNav(); setupListeners();
-  // Show login screen
   document.getElementById('loginScreen').classList.add('show');
   waitForGIS(setupTokenClient);
 }
@@ -839,9 +848,15 @@ async function appendLogRow(log) {
 
 function updateSyncStatus(status) {
   const el = document.getElementById('syncStatus'); if (!el) return;
-  if (status==='syncing') { el.textContent='🔄 Syncing...'; el.style.color='#d97706'; }
-  else if (status==='ok') { el.textContent='✅ Synced'; el.style.color='#16a34a'; setTimeout(()=>{ el.textContent=''; }, 2500); }
-  else if (status==='error') { el.textContent='⚠️ Sync failed'; el.style.color='#dc2626'; }
+  if (status==='syncing') {
+    el.textContent='🔄 Syncing...'; el.style.color='#d97706';
+  } else if (status==='ok') {
+    const t = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    el.textContent='✅ Synced '+t; el.style.color='#16a34a';
+    setTimeout(()=>{ el.textContent=''; }, 5000);
+  } else if (status==='error') {
+    el.textContent='⚠️ Sync failed — click Sync Now'; el.style.color='#dc2626';
+  }
 }
 
 function renderAll() {
@@ -874,6 +889,20 @@ function mobileNav(btn, page) {
   // Scroll to top
   window.scrollTo({top:0,behavior:'smooth'});
 }
+// Auto-refresh from Sheets every 60 seconds to pick up partner's changes
+let _autoRefreshTimer = null;
+function startAutoRefresh() {
+  if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+  _autoRefreshTimer = setInterval(() => {
+    if (S.accessToken && S.sheetId && !document.hidden) {
+      syncAllFromSheets();
+    }
+  }, 60000); // every 60 seconds
+}
+function stopAutoRefresh() {
+  if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+}
+
 function setupListeners() {
   document.getElementById('kanbanDate').addEventListener('change',renderKanban);
   document.getElementById('kanbanBatchFilter').addEventListener('change',renderKanban);
@@ -916,9 +945,11 @@ function setupTokenClient(){
       document.getElementById('loginScreen').classList.remove('show');
       document.getElementById('mainApp').style.display='block';
       if(window.innerWidth<=768) document.getElementById('mobileNav').style.display='flex';
+      startAutoRefresh(); // keep data in sync with partner
       toast('Signed in ✓','success');
-      renderAll();
-      // First pull from Sheets; if empty push local data up
+      // ALWAYS pull from Sheets on sign-in — this is the source of truth
+      // This ensures all users (you + partner) always see the same data
+      updateSyncStatus('syncing');
       syncAllFromSheets();
     }
   });
@@ -933,6 +964,7 @@ function doSignOut(){
   if(!confirm('Sign out of StitchTrack?')) return;
   try{google.accounts.oauth2.revoke(S.accessToken,()=>{});}catch(e){}
   S.accessToken='';
+  stopAutoRefresh();
   document.getElementById('mainApp').style.display='none';
   document.getElementById('loginScreen').classList.add('show');
   toast('Signed out','info');
