@@ -1628,8 +1628,24 @@ function saveEditBatch(){
                        .catch(()=>toast('Saved locally — sync failed','error'));
   } else { toast('Batch updated ✓','success'); }
 }
-function completeBatch(bNo){if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=true;renderAll();if(S.accessToken&&S.sheetId){syncBatchToSheets().then(()=>toast('Archived & saved to Sheets ✓','success'));}else{toast('Archived ✓','success');}}
-function reopenBatch(bNo){if(!confirm(`Reopen batch #${bNo}?`))return;const b=S.batches.find(x=>x.batchNo===bNo);if(b){b.archived=false;renderAll();if(S.accessToken&&S.sheetId){syncBatchToSheets().then(()=>toast('Reopened & saved to Sheets ✓','success'));}else{toast('Reopened ✓','info');}}
+function completeBatch(bNo){
+  if(!confirm(`Mark batch #${bNo} as complete and archive?`))return;
+  const b=S.batches.find(x=>x.batchNo===bNo);
+  if(b){
+    b.archived=true;renderAll();
+    if(S.accessToken&&S.sheetId){syncBatchToSheets().then(()=>toast('Archived & saved to Sheets ✓','success'));}
+    else{toast('Archived ✓','success');}
+  }
+}
+function reopenBatch(bNo){
+  if(!confirm(`Reopen batch #${bNo}?`))return;
+  const b=S.batches.find(x=>x.batchNo===bNo);
+  if(b){
+    b.archived=false;renderAll();
+    if(S.accessToken&&S.sheetId){syncBatchToSheets().then(()=>toast('Reopened & saved to Sheets ✓','success'));}
+    else{toast('Reopened ✓','info');}
+  }
+}
 function deleteBatch(bNo){if(!confirm(`Delete batch #${bNo} and all its logs?`))return;S.batches=S.batches.filter(b=>b.batchNo!==bNo);S.logs=S.logs.filter(l=>l.batchNo!==bNo);renderAll();if(S.accessToken&&S.sheetId){Promise.all([syncBatchToSheets(),syncAllLogsToSheets()]).then(()=>toast('Deleted & Sheets updated ✓','success'));}else{toast('Deleted','info');}}
 function renderBatches(){
   const tbody=document.getElementById('batchTable');
