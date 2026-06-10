@@ -1022,7 +1022,11 @@ function renderKanban(){
     if(groupedBatchNos.has(b.batchNo)) return false;
     return true;
   });
-  if(!batches.length){wrap.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>No batches to display</p></div>';return;}
+  const activeGroups=(S.groups||[]).filter(g=>!(!showArch&&g.archived));
+  if(!batches.length && !activeGroups.length){
+    wrap.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>No batches to display</p></div>';
+    return;
+  }
   const allOps=[];const seen=new Set();
   Object.keys(ALL_OPS).forEach(stage=>{
     if(kFilter!=='all'&&stage!==kFilter) return;
@@ -1087,7 +1091,7 @@ function renderKanban(){
   });
 
   // ── GROUP ROWS (combined cutting → stitching/packing) ──────────────
-  const activeGroups=(S.groups||[]).filter(g=>!(!showArch&&g.archived));
+  // activeGroups already declared above
   activeGroups.forEach(g=>{
     const steps=g.postCutSteps||[];
     const cutTotal=getGroupCutTotal(g);
