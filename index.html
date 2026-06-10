@@ -870,21 +870,26 @@ function mobileNav(btn, page) {
   // Scroll to top
   window.scrollTo({top:0,behavior:'smooth'});
 }
-// Auto-refresh from Sheets every 60 seconds to pick up partner's changes
+// Auto-refresh: only syncs when user manually clicks Sync Now
+// or when a save action completes — no constant polling
 let _autoRefreshTimer = null;
 function startAutoRefresh() {
-  if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
-  _autoRefreshTimer = setInterval(() => {
-    if (S.accessToken && S.sheetId && !document.hidden) {
-      syncAllFromSheets();
-    }
-  }, 10000); // every 10 seconds
+  // Intentionally disabled — sync happens on save actions only
+  // Partner sees changes within seconds because each save writes directly to Sheets
 }
 function stopAutoRefresh() {
   if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
 }
 
 function setupListeners() {
+  // Refresh from Sheets when user switches back to this tab
+  // This means if partner saved something, you see it as soon as you look at the tab
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && S.accessToken && S.sheetId) {
+      syncAllFromSheets();
+    }
+  });
+
   document.getElementById('kanbanDate').addEventListener('change',renderKanban);
   document.getElementById('kanbanBatchFilter').addEventListener('change',renderKanban);
   document.getElementById('showArchived').addEventListener('change',renderKanban);
