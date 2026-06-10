@@ -444,7 +444,7 @@
         <button class="btn btn-ghost" onclick="clearLogForm()">✕ Clear</button>
       </div>
     </div>
-    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-bottom:12px;">Today's Entries</div>
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-bottom:12px;">Entries for <span id="logDateLabel"></span></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Time</th><th>Batch</th><th>Labour</th><th>Stage</th><th>Operation</th><th>Good Pcs</th><th>Rejected</th><th>Notes</th><th>Actions</th></tr></thead>
@@ -774,7 +774,9 @@ function init() {
   S.sheetId = SHEET_ID;
   document.getElementById('sheetId').value = SHEET_ID;
 
-  const today = new Date().toISOString().split('T')[0];
+  // Use local date (not UTC) — important for India timezone (UTC+5:30)
+  const now = new Date();
+  const today = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
   ['logDate','kanbanDate','labourFrom','labourTo'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value=today;
   });
@@ -898,6 +900,17 @@ function setupListeners() {
       document.querySelectorAll('[data-kf]').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active'); kFilter=btn.dataset.kf; renderKanban();
     });
+  });
+  document.getElementById('logDate').addEventListener('change', () => {
+    renderTodayLog();
+    // Update the date label
+    const d = document.getElementById('logDate').value;
+    const el = document.getElementById('logDateLabel');
+    if(el) {
+      const now = new Date();
+      const today = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+      el.textContent = d === today ? 'Today ('+d+')' : d;
+    }
   });
   document.getElementById('logBatch').addEventListener('change',onLogBatchChange);
   document.getElementById('logOperation').addEventListener('change',onLogOpChange);
@@ -1437,10 +1450,16 @@ function clearLogForm(){
 }
 
 function renderTodayLog(){
-  const today=new Date().toISOString().split('T')[0];
+  // Show entries for whatever date is selected in the date field
+  const selectedDate = document.getElementById('logDate').value;
+  const now = new Date();
+  const today = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  // Update heading label
+  const labelEl = document.getElementById('logDateLabel');
+  if(labelEl) labelEl.textContent = selectedDate===today ? 'Today ('+selectedDate+')' : selectedDate;
   const tbody=document.getElementById('todayLogTable');
-  const logs=S.logs.filter(l=>l.date===today).slice().reverse();
-  if(!logs.length){tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:28px;">No entries today</td></tr>`;return;}
+  const logs=S.logs.filter(l=>l.date===selectedDate).slice().reverse();
+  if(!logs.length){tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:28px;">No entries for this date</td></tr>`;return;}
   tbody.innerHTML=logs.map(l=>`<tr>
     <td>${l.time||''}</td><td><strong>#${l.batchNo}</strong></td><td>${l.labour}</td>
     <td><span class="badge badge-${(l.stage||'').toLowerCase()}">${l.stage||''}</span></td>
