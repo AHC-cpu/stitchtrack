@@ -1266,10 +1266,15 @@ function renderKanban(){
       const tl=S.logs.filter(l=>l.batchNo===g.groupId&&l.operation===op&&l.date===selDate);
       const tg=tl.reduce((a,l)=>a+(parseInt(l.pieces)||0),0);
       const tr2=tl.reduce((a,l)=>a+(parseInt(l.rejections)||0),0);
+      // Step number for this op in the GROUP's post-cut sequence
+      const gStepNum = steps.indexOf(op) + 1; // 1-based
+      const gStageKey = (OP_STAGE[op]||'').toLowerCase();
+      const gStepBadge = gStepNum > 0 ? `<span class="step-num step-num-${gStageKey}">${gStepNum}</span>` : '';
+
       if(d.good===0&&d.rej===0){
-        rows+=`<td><span class="cell-pending">${d.incoming>0?'⏳ '+d.incoming+' pending':'—'}</span></td>`;
+        rows+=`<td>${gStepBadge}<span class="cell-pending">${d.incoming>0?'⏳ '+d.incoming+' pending':'—'}</span></td>`;
       } else {
-        let h=`<div class="cell-done">${d.good} good</div>`;
+        let h=`<div class="cell-done">${gStepBadge}${d.good} good</div>`;
         if(d.rej>0)h+=`<div class="cell-rej">−${d.rej} rej</div>`;
         if(selDate&&(tg>0||tr2>0))h+=`<div style="font-size:10px;color:#7c3aed;">Today: ${tg}${tr2>0?' (−'+tr2+')':''}</div>`;
         if(d.remaining!==null){
