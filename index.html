@@ -890,7 +890,8 @@ function init() {
 
   setupNav(); setupListeners();
   document.getElementById('loginScreen').classList.add('show');
-  waitForGIS(setupTokenClient);
+  // Finish Google sign-in if we just came back from Google (redirect flow)
+  handleRedirectResult();
 }
 
 // persist() removed — data goes directly to Google Sheets only
@@ -1043,36 +1044,95 @@ function previewMode() {
   toast('Preview mode — Sign in to sync with Google Sheets', 'info');
 }
 
-function setupTokenClient(){
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    callback: async (resp)=>{
-      if(resp.error){toast('Sign in failed: '+resp.error,'error');return;}
-      S.accessToken = resp.access_token;
-      // Get user profile
-      try {
-        const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{'Authorization':'Bearer '+S.accessToken}});
-        const u = await r.json();
-        document.getElementById('userName').textContent = u.name||u.email||'User';
-        document.getElementById('userAvatar').src = u.picture||'';
-      } catch(e){}
-      // Hide login, show app
-      document.getElementById('loginScreen').classList.remove('show');
-      document.getElementById('mainApp').style.display='block';
-      if(window.innerWidth<=768) document.getElementById('mobileNav').style.display='flex';
-      startAutoRefresh(); // keep data in sync with partner
-      toast('Signed in ✓', 'success');
-      updateSyncStatus('syncing');
-      // Pull from Sheets first, then push any missing master data
-      syncAllFromSheets();
-    }
-  });
+// ===== GOOGLE SIGN IN (redirect flow, no popup) =====
+// The popup sign-in started failing with "popup_closed" on every PC/browser:
+// Google issued the token but the popup could not pass it back to this page.
+// Redirect flow: the page goes to Google and returns with #access_token=... in the URL.
+// This page's URL must be listed under "Authorized redirect URIs" on the OAuth client.
+// Only a one-time random "state" value is kept in sessionStorage — no app data.
+const ST_OAUTH_STATE_KEY = 'st_oauth_state';
+
+function getRedirectUri(){
+  // https://ahc-cpu.github.io/stitchtrack/ (strip a trailing index.html)
+  return location.origin + location.pathname.replace(/index\.html$/, '');
+}
+
+// Kept so existing calls don't break; the popup token client is no longer used.
+function setupTokenClient(){}
+
+// Runs after Google gives us a token (same steps as the old popup callback)
+async function onTokenReceived(accessToken){
+  S.accessToken = accessToken;
+  // Get user profile
+  try {
+    const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{'Authorization':'Bearer '+S.accessToken}});
+    const u = await r.json();
+    document.getElementById('userName').textContent = u.name||u.email||'User';
+    document.getElementById('userAvatar').src = u.picture||'';
+  } catch(e){}
+  // Hide login, show app
+  document.getElementById('loginScreen').classList.remove('show');
+  document.getElementById('mainApp').style.display='block';
+  if(window.innerWidth<=768) document.getElementById('mobileNav').style.display='flex';
+  startAutoRefresh(); // keep data in sync with partner
+  toast('Signed in ✓', 'success');
+  updateSyncStatus('syncing');
+  // Pull from Sheets first, then push any missing master data
+  syncAllFromSheets();
+}
+
+function showSignInError(msg){
+  console.error('Google sign-in error:', msg);
+  document.getElementById('loginScreen').classList.add('show');
+  toast(msg,'error');
+}
+
+// Returns true if the URL held a Google sign-in reply (success or error)
+function handleRedirectResult(){
+  const hash = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  if(!hash) return false;
+  const p = new URLSearchParams(hash);
+  if(!p.has('access_token') && !p.has('error')) return false;
+
+  // Remove the token from the address bar and history straight away
+  history.replaceState(null, '', location.pathname + location.search);
+
+  let expected = null;
+  try { expected = sessionStorage.getItem(ST_OAUTH_STATE_KEY); sessionStorage.removeItem(ST_OAUTH_STATE_KEY); } catch(e){}
+
+  if(p.has('error')){
+    const err = p.get('error');
+    showSignInError(err==='access_denied'
+      ? 'Google sign-in was cancelled — click Sign in to try again'
+      : 'Sign in failed: '+err+' — click Sign in to try again');
+    return true;
+  }
+  if(!expected || p.get('state')!==expected){
+    showSignInError('Sign-in reply could not be verified — click Sign in to try again');
+    return true;
+  }
+  if(!(p.get('scope')||'').includes('https://www.googleapis.com/auth/spreadsheets')){
+    showSignInError('Google Sheets access was not allowed — sign in again and tick the Sheets permission');
+    return true;
+  }
+  onTokenReceived(p.get('access_token'));
+  return true;
 }
 
 function doSignIn(){
-  if(!tokenClient){waitForGIS(()=>{setupTokenClient();tokenClient.requestAccessToken();});return;}
-  tokenClient.requestAccessToken();
+  toast('Taking you to Google sign-in…','info');
+  // Random value to confirm the reply belongs to this sign-in attempt
+  const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  try { sessionStorage.setItem(ST_OAUTH_STATE_KEY, state); } catch(e){}
+  const params = new URLSearchParams({
+    client_id:              CLIENT_ID,
+    redirect_uri:           getRedirectUri(),
+    response_type:          'token',
+    scope:                  SCOPES,
+    include_granted_scopes: 'true',
+    state:                  state,
+  });
+  location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + params.toString());
 }
 
 function doSignOut(){
@@ -2531,9 +2591,10 @@ function handleTokenExpiry() {
   S.accessToken = '';
   toast('Session expired — please sign in again', 'error');
   updateSyncStatus('error');
-  if (tokenClient) {
-    setTimeout(() => { tokenClient.requestAccessToken({prompt:''}); }, 1000);
-  }
+  // Popup re-auth no longer works. Show the sign-in screen instead of
+  // auto-redirecting, so nothing the user is typing gets lost without warning.
+  stopAutoRefresh();
+  document.getElementById('loginScreen').classList.add('show');
 }
 
 function handle403Error() {
